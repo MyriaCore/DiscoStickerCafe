@@ -3,3 +3,11 @@ secrets*.env
 
 # Personal Claude Code settings
 .claude/settings.local.json
+
+# Build outputs
+api/target/
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+*.tsbuildinfo
+next-env.d.ts

@@ -1,0 +1,7 @@
+# Keep secrets and local build output out of every root-context image build.
+secrets*.env
+**/node_modules
+**/target
+**/.next
+**/out
+.git

@@ -16,7 +16,7 @@ Planning checks (2026-10-10):
   - Testcontainers 2.0.5
   - AWS SDK for Java v2 2.55.14
   - Maven 3.9.16
-  - TypeScript 5.11.1 (`create-next-app` 16.4 scaffolds `^5`)
+  - TypeScript 5.9.3, the newest 5.x (`create-next-app` 16.4 scaffolds `^5`). Corrected during apply: 5.11.1 was never published; npm goes from 5.9.3 to 6.0.x and 7.0.x.
 - **Spring Boot 4 and Testcontainers 2 names**, checked against the Boot 4.0 migration guide and the 4.1.1 / 2.0.5 jars on Central:
   - Web MVC: `spring-boot-starter-webmvc`, with `spring-boot-starter-webmvc-test` for tests (`spring-boot-starter-web` is deprecated).
   - Flyway: `spring-boot-starter-flyway` plus `org.flywaydb:flyway-database-postgresql`. Boot manages its version (Flyway 12.4.0).
@@ -33,6 +33,7 @@ Planning checks (2026-10-10):
   - With no credentials configured, S3 runs in **Allow-All** mode and accepts anonymous requests.
   - It reads `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` as a single global admin identity.
   - WebDAV, an admin UI with no password, telemetry, the Iceberg and Lance ports, and `s3.autoCreateBucket` are all on by default.
+  - The admin server itself always starts (HTTP 23646, gRPC 33646). `-admin.ui=false` removes the UI, leaving only `/health` and `/metrics`, and no flag stops the server; `-admin.port=0` just picks a random port. Found during apply.
   - Path-style addressing is the only mode when `-s3.domainName` is empty.
 - **Postgres 18 image:** the official docs say `VOLUME` moved to `/var/lib/postgresql` (PGDATA is `/var/lib/postgresql/18/docker`). Recheck this when writing compose.
 
@@ -138,11 +139,12 @@ AWS SDK v2.30 and later sends CRC32 trailing checksums by default. SeaweedFS 4.4
 - nginx listens on the same port it's published on, so `$server_port` matches what the browser sees.
 - *Alternative:* `trailingSlash: false` with `try_files $uri $uri.html $uri/`. It also works, but the `.html` rewrite is extra.
 
-### D11. Next.js 16.4 static export with TypeScript ~5.11
+### D11. Next.js 16.4 static export with TypeScript ~5.9
 - `next.config.ts` sets `output: 'export'` and `trailingSlash: true`.
 - One placeholder `app/page.tsx` with no `next/image`; the default scaffold page uses it, which breaks `output: 'export'`.
+- The 16.4 scaffold also enables `cacheComponents` and `partialPrefetching` and loads Geist through `next/font/google`. Remove all three. The config holds only the two settings above, and `next/font/google` would download fonts during the gateway image build.
 - `package.json` has a `typecheck` script running `tsc --noEmit`.
-- `typescript` is pinned to `~5.11.1`.
+- `typescript` is pinned to `~5.9.3`.
 - No test runner and no linter in this change.
 - *Alternative:* TypeScript 7.0. It's faster, but Next 16.4 runs it only through an experimental CLI fallback.
 
@@ -156,7 +158,7 @@ AWS SDK v2.30 and later sends CRC32 trailing checksums by default. SeaweedFS 4.4
 - **postgres:** `pg_isready -U discosticker -d discosticker`
 - **seaweedfs:** `curl -fsS http://localhost:8333/healthz`
 - **api:** `wget -qO- http://localhost:8080/api/health | grep -q UP`, using busybox `wget` in the Temurin Alpine image (checked in task 3.4)
-- **gateway:** `wget -qO- http://localhost:8080/ >/dev/null`
+- **gateway:** `wget -qO- http://127.0.0.1:8080/ >/dev/null`. Not `localhost`: inside the container it resolves to `::1` first, and nginx listens on IPv4 only.
 - Start order: gateway after api (healthy). api after postgres (healthy) and bucket-init (completed successfully). bucket-init after seaweedfs (healthy).
 
 ### D14. No commands that print secret values (resolved: project rule)
@@ -171,7 +173,7 @@ AWS SDK v2.30 and later sends CRC32 trailing checksums by default. SeaweedFS 4.4
 | T1 | SeaweedFS fails open: if S3 keys are missing it accepts anonymous requests (Allow-All). | `${VAR:?}` on every secret in compose, so compose refuses to start. The api's `app.s3` properties are `@NotBlank`. | SeaweedS3IT anonymous and wrong-key tests (1.4); missing-secret config check (6.1); in-stack anonymous `curl` returns 403 (6.6). |
 | T2 | `secrets.env` ends up in a Docker build context and from there in an image layer or the build cache. | The api build context is `api/` only. The gateway context is the root, which has a `.dockerignore` excluding `secrets*.env`. | A throwaway build that copies the whole context and asserts `secrets.env` is absent (6.3). |
 | T3 | Exposed ports: Postgres, the SeaweedFS S3/filer/master/volume ports, or the api reachable from the host or LAN. | Only the gateway publishes, on `127.0.0.1` only. The other services stay on internal networks, and the gateway isn't on `backend` (D8). | `docker ps` port listing (6.5); the gateway can't resolve `seaweedfs` (6.6). |
-| T4 | The SeaweedFS admin UI (no password by default) and WebDAV give unauthenticated access to stored files. | `-admin.ui=false -webdav=false`. The remaining internal filer and master HTTP ports are unauthenticated, but only `backend` members can reach them. | `curl` to ports 23646 and 7333 inside the seaweedfs container fails to connect (6.6). |
+| T4 | The SeaweedFS admin UI (no password by default) and WebDAV give unauthenticated access to stored files. | `-admin.ui=false -webdav=false`. The admin server still listens on 23646 (HTTP, only `/health` and `/metrics` with the UI off) and 33646 (gRPC). Like the unauthenticated filer and master HTTP ports, only `backend` members can reach them. | Inside the seaweedfs container, port 7333 fails to connect and `GET /` on 23646 returns 404 (6.6). |
 | T5 | Auto-created buckets: a typo in the bucket name silently creates a new bucket. | `-s3.autoCreateBucket=false`, no `-bucket`; only bucket-init creates the bucket. | SeaweedS3IT: writing to a missing bucket is rejected (1.4). |
 | T6 | Secret values leak through `docker compose config` or `docker inspect` output. Both print resolved environment values into the terminal and the session transcript. | Never run `docker compose --env-file secrets.env config` or `docker inspect` on postgres, seaweedfs, bucket-init, or api. Config checks use `secrets.env.example` only. No `set -x` in bucket-init. Actuator exposes only `health`, not `env` or `configprops`. Claude never creates, reads, edits, or prints `secrets.env`. | Task Verify lines only ever pass `secrets.env.example` to `config`. |
 | T7 | SeaweedFS logs the identity name `admin-<first 8 chars of access key ID>`. | The access key ID is not the secret key, so this is accepted. Don't paste raw SeaweedFS logs anywhere public. | — |
@@ -201,16 +203,8 @@ This is a new project with nothing to migrate. To roll back, close the PR, or re
 
 - Production S3 credentials provider (the SDK default chain with an IAM role, or static credentials). Deferred to the hosting decision; D3's properties don't block either option.
 
-## Recorded-decision candidates
+## Recorded decisions
 
-These are for approval in the PM session. `docs/decisions.md` is only copied in this change, not edited.
+The PM session approved this change's decisions on 2026-10-10. They are recorded in `docs/decisions.md`, which is the source of truth; this section no longer lists them.
 
-- The api builds with Maven (wrapper 3.9.16) on Java 25 LTS and Spring Boot 4.1.1.
-- Local storage runs SeaweedFS `weed mini` pinned to 4.48, with the admin UI, WebDAV, telemetry, Iceberg/Lance, and bucket auto-creation turned off.
-- A one-shot bucket-init container creates the bucket through the S3 API, and the api waits for it to exit 0.
-- Each container receives only the secrets it needs, by name, through compose interpolation from `secrets.env`. Every secret is required (`:?`), and `env_file: secrets.env` is not used.
-- The Next.js export is copied into the gateway image by a multi-stage build, with `trailingSlash: true` and no fallback to `index.html`.
-- Only the gateway publishes a port (`127.0.0.1:8080`), and it is not on the network with Postgres and SeaweedFS.
-- `/api/health` is Actuator's health endpoint, with details hidden.
-- TypeScript stays on 5.11 until Next.js fully supports TypeScript 7.
-- Integration tests share one Testcontainers configuration with random runtime credentials. Each IT Verify line checks that the named test actually ran.
+Two design choices from this change were not recorded there and stay as design-level detail in this file: `/api/health` is Actuator's health endpoint with details hidden (D12), and integration tests share one Testcontainers configuration with random runtime credentials (D2).

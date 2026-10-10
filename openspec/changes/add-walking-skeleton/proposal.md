@@ -47,7 +47,7 @@ None. No specs exist yet.
 
 ## Impact
 
-- New code: `api/` (Maven, Spring Boot 4.1.1, Java 25), `frontend/` (Next.js 16.4, TypeScript 5.11), `gateway/` (nginx 1.30.5 Dockerfile and config), and `compose.yaml` at the repo root.
+- New code: `api/` (Maven, Spring Boot 4.1.1, Java 25), `frontend/` (Next.js 16.4, TypeScript 5.9), `gateway/` (nginx 1.30.5 Dockerfile and config), and `compose.yaml` at the repo root.
 - New files: `secrets.env.example`, `.dockerignore`, and `docs/decisions.md`. `.gitignore` and the Commands section of `CLAUDE.md` are updated.
 - New images: `postgres:18.6-alpine`, `chrislusf/seaweedfs:4.48`, `nginx:1.30.5-alpine`, `amazon/aws-cli:2.37.12`, `eclipse-temurin:25`, and `node:24-alpine`.
 - Developer machine: needs a running Docker engine. On Windows 11 Home that means Docker Desktop on WSL 2, which the user sets up.

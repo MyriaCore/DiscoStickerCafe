@@ -1,0 +1,15 @@
+spring:
+  application:
+    name: api
+
+server:
+  # Trust X-Forwarded-* from nginx (Tomcat's RemoteIpValve accepts private-range proxies only).
+  forward-headers-strategy: native
+
+management:
+  endpoints:
+    web:
+      # Health lives at /api/health so the gateway's /api/ prefix covers it.
+      base-path: /api
+      exposure:
+        include: health
