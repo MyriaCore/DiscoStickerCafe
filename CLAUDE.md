@@ -34,6 +34,7 @@ Work happens on a branch per feature or large effort (one branch may hold severa
 - Run the ban and account-age checks at login, before a session is created.
 - Bans are set manually in the database for now; no ban UI or ban audit events.
 - Secrets live only in `secrets.env`, which is gitignored. Refer to them by variable name; never put a secret value in source, `application.yml`, compose files, Dockerfiles, tests, or OpenSpec artifacts. Keep the committed `secrets.env.example` listing the same variable names with placeholder values. Do not read or print `secrets.env`.
+- Never run `docker compose config` with secrets.env, or `docker inspect` on services that hold secrets; both print secret values. Config checks use secrets.env.example only.
 
 ## Commands
 
