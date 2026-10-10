@@ -1,0 +1,18 @@
+# LF everywhere so scripts and configs work inside Linux containers.
+* text=auto eol=lf
+
+# Windows-only scripts (e.g. mvnw.cmd) need CRLF.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Never convert images. Test fixtures include malformed and crafted images
+# that text=auto could misdetect as text and corrupt.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.bmp  binary
+*.ico  binary
+*.tif  binary
+*.tiff binary

@@ -1,1 +1,5 @@
-secrets.env
+# Secrets (secrets.env.example is committed)
+secrets*.env
+
+# Personal Claude Code settings
+.claude/settings.local.json

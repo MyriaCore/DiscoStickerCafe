@@ -24,10 +24,12 @@ Changes go through OpenSpec: `/opsx:explore` → `/opsx:propose` → `/opsx:appl
   - Re-encode to PNG on the server.
   - Never store or serve the original bytes. The audit record keeps their SHA-256.
 - Rate-limit uploads per user.
-- Write audit records for logins, uploads (accepted and rejected).
+- Write audit records for logins and uploads, accepted and rejected.
 - Public IDs are 128-bit random values, base64url-encoded. Database keys never appear in URLs.
 - The browser talks only to nginx. Do not add CORS configuration.
 - Run the ban and account-age checks at login, before a session is created.
+- Bans are set manually in the database for now; no ban UI or ban audit events.
+- Secrets live only in `secrets.env`, which is gitignored. Refer to them by variable name; never put a secret value in source, `application.yml`, compose files, Dockerfiles, tests, or OpenSpec artifacts. Keep the committed `secrets.env.example` listing the same variable names with placeholder values. Do not read or print `secrets.env`.
 
 ## Commands
 

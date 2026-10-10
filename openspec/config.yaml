@@ -24,10 +24,15 @@ context: |
     decode; image re-encoded server-side to PNG. Original bytes are never stored or
     served; the audit record keeps their SHA-256.
   - Per-user upload rate limits.
-  - Audit records for logins, uploads (accepted and rejected).
+  - Audit records for logins and uploads, accepted and rejected.
   - Public IDs are 128-bit random, base64url-encoded. Database keys never appear in URLs.
   - The browser talks only to nginx. No CORS configuration.
   - Ban and account-age checks run at login, before a session is created.
+  - Bans are set manually in the database for now; no ban UI or ban audit events.
+  - Secrets live only in gitignored secrets.env. Reference secrets by variable name only;
+    never put a value in code, config, compose files, tests, or artifacts. The committed
+    secrets.env.example lists the same names with placeholder values. Production secret
+    handling is undecided and is not in scope.
 
 rules:
   proposal:
