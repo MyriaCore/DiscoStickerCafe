@@ -17,6 +17,12 @@ One line per decision, with the reason. Project-wide rules are enforced in `open
 - **2026-10-10** — Spring uses `forward-headers-strategy=native` behind nginx; the login change proves it end to end. *Why:* Tomcat then trusts forwarded headers only from internal proxy addresses.
 - **2026-10-10** — Production runs on a new Vultr instance, separate from the myriaco.re server, using the same docker compose stack.
 - **2026-10-10** — This weekend, production storage is SeaweedFS on that server, reachable only on the internal network; AWS S3 replaces it later as a configuration change plus a data copy.
+- **2026-10-10** — Production is a Vultr vc2-2c-4gb instance (2 vCPU, 4 GB, Debian 13) running the same compose stack plus `compose.prod.yaml`; images build on the server from a clone of the public repo, with no registry or CI.
+- **2026-10-10** — Production and local nginx share one routes include; `compose.prod.yaml` mounts the production server config from the checkout. *Why:* routes can't drift between local and production.
+- **2026-10-10** — Long-running services restart `unless-stopped`; bucket-init stays one-shot. *Why:* the stack comes back after a reboot with no manual steps, without bucket-init restarting in a loop.
+- **2026-10-10** — nginx serves HTTPS with a Let's Encrypt certificate for `discosticker.cafe` and `www.discosticker.cafe`, issued and renewed by Debian's certbot through the running gateway (webroot), and registered without an email address. *Why:* Let's Encrypt no longer sends expiry emails, and renewal is automatic.
+- **2026-10-10** — `www.discosticker.cafe` redirects (301) to `https://discosticker.cafe`; the GoDaddy `www` CNAME stays.
+- **2026-10-10** — The renewal hook reloads the gateway and is quiet on success. *Why:* certbot labels any stderr as an error, and its log is the only place a failed renewal shows up while there's no monitoring.
 
 ## Security
 
@@ -32,11 +38,17 @@ One line per decision, with the reason. Project-wide rules are enforced in `open
 - **2026-10-10** — `secrets.env` holds only secrets; the bucket name, region and endpoint live in compose or `application.yml`.
 - **2026-10-10** — Claude Code's file tools are denied reading and editing `secrets.env`, and `CLAUDE.md` forbids reading or printing it any other way. *Why:* anything Claude reads ends up in the session transcript.
 - **2026-10-10** — Claude Code never runs `docker compose config` with `secrets.env`, or `docker inspect` on services that hold secrets. *Why:* both print secret values into the transcript.
-- **2026-10-10** — How production gets its secrets is decided with hosting; Vault is out of scope this weekend.
+- **2026-10-10** — In production, `secrets.env` is created by hand on the server in the deploy checkout, owned by the deploy user with mode 600, with values generated on the server; it is never committed, copied into an image, or handled by Claude Code, and Claude never connects to the server. Vault stays out of scope. *Why:* the secrets are generated where they're used, so they never travel or appear in a transcript. (Replaces the earlier "decided with hosting" entry.)
 - **2026-10-10** — Compose requires the storage keys, and a test proves anonymous and wrong-key requests are rejected. *Why:* SeaweedFS accepts anonymous requests when its keys are missing, and storage must fail closed.
 - **2026-10-10** — SeaweedFS runs `weed mini` 4.48 with WebDAV, the admin UI, telemetry and bucket auto-creation off; its always-on admin server serves only `/health` and `/metrics`, on the internal network. *Why:* fewer exposed services, and no buckets created by accident.
 - **2026-10-10** — Only the gateway publishes a port; Postgres, SeaweedFS and the api stay on the internal network.
 - **2026-10-10** — The Vultr firewall allows 80 and 443 from anywhere (IPv4 and IPv6) and 22 only from the maintainer's home IPv4; key-only SSH stays on, with Vultr's web console as the fallback. *Why:* only the site is public, and password-guessing bots can't reach SSH at all.
+- **2026-10-10** — ufw stays active on the server and allows 22, 80 and 443 for IPv4 and IPv6; the Vultr firewall is the perimeter and ufw is the host backstop. *Why:* Vultr's image shipped ufw active, and its IPv6 rules are what let IPv6 traffic reach `docker-proxy`.
+- **2026-10-10** — SSH is key-only with root login disabled, set in a `00-hardening.conf` drop-in; the `deploy` user does everything through `sudo`.
+- **2026-10-10** — TLS 1.2 and 1.3 only; TLS by bare IP or for an unknown host is refused (`ssl_reject_handshake`), and plain-HTTP requests for unknown hosts are closed; no OCSP stapling. *Why:* Let's Encrypt ended OCSP in 2025.
+- **2026-10-10** — The gateway sends four fixed security headers with `always`: HSTS `max-age=300` (no includeSubDomains or preload), `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY`; no Content-Security-Policy this weekend. HSTS is raised once HTTPS has been stable. *Why:* a long HSTS max-age is hard to undo if something goes wrong.
+- **2026-10-10** — nginx is the only source of those security headers; the login change hides any copies the api sends (`proxy_hide_header`). *Why:* Spring Security's default one-year HSTS would otherwise override `max-age=300`.
+- **2026-10-10** — Docker updates are manual; unattended-upgrades applies Debian security updates only.
 
 ## Process
 
@@ -49,6 +61,9 @@ One line per decision, with the reason. Project-wide rules are enforced in `open
 - **2026-10-10** — The repo enforces LF line endings with `.gitattributes`. *Why:* shell scripts with CRLF endings fail inside Linux containers.
 - **2026-10-10** — The repo is public on GitHub from the first commit. *Why:* this is a portfolio project.
 - **2026-10-10** — Decisions are approved in the maintainer's PM session before they go in this file, and Claude Code edits it only when asked. If a change would contradict a recorded decision, Claude Code stops and asks.
+- **2026-10-10** — Pull requests merge with a merge commit, not squash, and each change is archived on its branch before the merge. *Why:* the history keeps each change's trail from proposal to verified code.
+- **2026-10-10** — Deploys run from the feature branch before it merges; the server switches to `master` after the merge.
+- **2026-10-10** — `add-production-deploy` is archived as the first commit on the login branch. *Why:* its last task (switching the server to `master`) can only run after the merge.
 
 ## Scope
 
@@ -57,4 +72,6 @@ One line per decision, with the reason. Project-wide rules are enforced in `open
 - **2026-10-10** — The "My stickers" page and owner-only delete move to next weekend.
 - **2026-10-10** — Uploads accept only PNG and JPEG this weekend; WebP moves to next weekend.
 - **2026-10-10** — The walking skeleton deploys to discosticker.cafe as soon as it merges, before login. *Why:* hosting problems surface early instead of on Sunday night.
-- **2026-10-10** — Next weekend: GIFs, importing server stickers, a report link, admin ban-and-purge, IP retention cleanup, the "My stickers" page with owner-only delete, WebP uploads, and an optional GitLab mirror.
+- **2026-10-10** — The deploy has no local rehearsal script and no swapfile; if the server build runs out of memory, the api and gateway are built one at a time. *Why:* both cost time without reducing real risk for this deploy.
+- **2026-10-10** — The login change starts with two fixes: the IPv6 visitor-address fix (IPv6 visitors currently appear as the Docker bridge address) and hiding the api's security headers.
+- **2026-10-10** — Next weekend: GIFs, importing server stickers, a report link, admin ban-and-purge, IP retention cleanup, the "My stickers" page with owner-only delete, WebP uploads, raising the HSTS max-age, a Content-Security-Policy, and an optional GitLab mirror.

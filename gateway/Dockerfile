@@ -12,5 +12,8 @@ FROM nginx:1.30.5-alpine
 RUN rm -r /etc/nginx/conf.d/default.conf /usr/share/nginx/html/*
 COPY gateway/nginx.conf /etc/nginx/nginx.conf
 COPY gateway/proxy_headers.conf /etc/nginx/proxy_headers.conf
+COPY gateway/routes.conf /etc/nginx/routes.conf
+COPY gateway/security_headers.conf /etc/nginx/security_headers.conf
+COPY gateway/conf.d/ /etc/nginx/conf.d/
 COPY --from=frontend /src/out/ /usr/share/nginx/html/
 EXPOSE 8080
