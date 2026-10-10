@@ -419,15 +419,36 @@ It must print `UP`.
 
 ## Redeploy
 
-After a merge to `master`:
+After a merge to `master`, first take GitHub's `master` hash on Windows. That's the commit the server must end up on:
+
+```powershell
+git ls-remote origin refs/heads/master
+```
+
+Then on the server:
 
 ```bash
 cd /srv/discosticker
 Prod='docker compose -f compose.yaml -f compose.prod.yaml --env-file secrets.env'
-git switch master               # only once, the first time after the deploy PR merges
+git fetch origin
+git switch master
 git pull --ff-only
+git rev-parse HEAD              # must equal the hash from ls-remote; if not, stop
 $Prod up --build -d --wait --wait-timeout 900; echo "exit=$?"
+$Prod exec gateway ls /etc/nginx/conf.d          # must list discosticker.conf
 ```
+
+**Always compare against GitHub's hash, taken from Windows.** Never compare against the server's own `origin/master`: it's only as fresh as the server's last fetch. On 2026-10-10, a pull ran before GitHub's `master` had the deploy merge. `git switch master` then checked out the pre-deploy master and deleted `compose.prod.yaml` and `gateway/prod/` from the checkout. `HEAD == origin/master` still passed, because both were stale.
+
+**After any `git switch` or `git checkout` on the server, recreate the gateway:**
+
+```bash
+$Prod up -d --force-recreate --no-deps --wait gateway
+$Prod exec gateway ls /etc/nginx/conf.d          # must list discosticker.conf
+$Prod exec gateway nginx -t -q; echo "nginx-t=$?"
+```
+
+Why: the gateway mounts the `gateway/prod/` directory. If a checkout removes that directory and later recreates it, the running container keeps pointing at the deleted, empty one. nginx carries on with the config it already loaded, so the site still looks fine, but the next reload or restart (including the renewal hook's) would start nginx with no server blocks. Recreating the container mounts the current directory. A plain `up` doesn't do this, because it only recreates containers whose image or settings changed.
 
 If the build runs out of memory, build one image at a time, then start:
 
@@ -437,11 +458,13 @@ $Prod build gateway
 $Prod up -d --wait --wait-timeout 900
 ```
 
-**A change to `gateway/prod/` only** needs no rebuild. The directory is mounted into the gateway, so pull and reload:
+**A change to `gateway/prod/` only** needs no rebuild. The directory is mounted into the gateway, so pull, check that the container sees the new file, and reload:
 
 ```bash
+git fetch origin
 git pull --ff-only
-$Prod exec gateway nginx -t
+$Prod exec gateway ls /etc/nginx/conf.d          # must list discosticker.conf; if not, recreate the gateway (above)
+$Prod exec gateway nginx -t -q; echo "nginx-t=$?"
 $Prod exec gateway nginx -s reload
 ```
 
@@ -457,9 +480,10 @@ docker builder prune
 ```bash
 git checkout <previous-commit>
 $Prod up --build -d --wait --wait-timeout 900
+$Prod up -d --force-recreate --no-deps --wait gateway
 ```
 
-Then `git switch master` again once the fix is merged.
+Then, once the fix is merged, `git fetch origin`, `git switch master` and `git pull --ff-only`, check the hash against GitHub's, and recreate the gateway again. Don't roll back to a commit from before the deploy merge: it has no `compose.prod.yaml` or `gateway/prod/`.
 
 ## Lockout recovery
 

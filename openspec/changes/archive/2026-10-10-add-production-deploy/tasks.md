@@ -253,8 +253,15 @@ Conventions for every task:
   Verify: `$d = (Get-Date).AddMinutes(6); do { try { $st = (Invoke-RestMethod https://discosticker.cafe/api/health -TimeoutSec 5).status } catch { $st = $null; Start-Sleep 10 } } until ($st -eq 'UP' -or (Get-Date) -gt $d); $st` prints `UP`.
   Notes (2026-10-10, polled by Claude from Windows): the maintainer ran `sudo reboot` and didn't log back in. The poll saw the site go down at 16:34:41 local and return `UP` at 16:35:27 (about 46 s seen from outside), with no manual steps. Afterwards: health `UP` over IPv4 and IPv6; `/` 200; `/nope/` 404; `/s/x` `404 application/json`; http still redirects 301 to https; all four security headers present.
 
-- [ ] 7.11 [user] After the PR merges, switch the server to `master` with `git -C /srv/discosticker switch master` and `git -C /srv/discosticker pull --ff-only`.
-  Verify (server): `git -C /srv/discosticker branch --show-current` prints `master`, and `git -C /srv/discosticker rev-parse HEAD` equals `git -C /srv/discosticker rev-parse origin/master`. Then Claude reruns the 7.4 checks, which still return `UP`.
+- [x] 7.11 [user] After the PR merges, switch the server to `master`: `git -C /srv/discosticker fetch origin`, `git -C /srv/discosticker switch master`, `git -C /srv/discosticker pull --ff-only`, then recreate the gateway (`$Prod up -d --force-recreate --no-deps --wait gateway`) so its `gateway/prod` mount is current.
+  Verify: `git -C /srv/discosticker rev-parse HEAD` (server) equals the hash printed by `git ls-remote origin refs/heads/master` (PowerShell, on the maintainer's machine). Compare against GitHub, not the server's own `origin/master`, which can be stale. `$Prod exec gateway ls /etc/nginx/conf.d` lists `discosticker.conf`, and `$Prod exec gateway nginx -t -q` exits 0. Then Claude reruns the 7.4 checks, which still return `UP`.
+  Notes (2026-10-10):
+  - **First attempt failed silently.** The server's `pull` ran before GitHub's `master` had the PR #2 merge (`f3fe72a`). It updated only `origin/feature/deploy` and reported "Already up to date". `git switch master` had checked out the stale `origin/master` from clone time (`1ccf68b`, the skeleton merge), which deleted `compose.prod.yaml`, `gateway/prod/` and the other deploy files from the checkout. The original check (`HEAD` equals the server's `origin/master`) passed, because both were stale.
+  - **Impact:** none visible. nginx kept serving its loaded config, but the gateway's `gateway/prod` mount pointed at the deleted directory, so the next reload or restart (including the renewal hook's) would have started nginx with no server blocks.
+  - **Caught by** Claude comparing against GitHub: `git ls-remote` showed `master` at `f3fe72a`.
+  - **Fix (reported by the user):** `git fetch origin` and `git pull --ff-only` brought the server to `f3fe72a0ff00f9de0e0bf1d2e93df75b1d25b2a8`. `$Prod up -d --force-recreate --no-deps --wait gateway` gave `exit=0`; `conf.d` lists `discosticker.conf`; `nginx -t -q` exits 0; all four services are healthy. No image rebuild was needed: since the build commit (`6e7c9b9`), only docs and OpenSpec files changed.
+  - **Outside checks (Claude, 16:46 local):** health `UP` over IPv4 and IPv6; redirects, ACME 404, routes, all four headers, unknown-host close and the certificate all as in 7.2–7.7.
+  - **Prevention:** this task's steps and check, and the runbook's Redeploy section, now fetch first, compare with GitHub's hash, and recreate the gateway after any branch switch.
 
 ## Workflow follow-up
 

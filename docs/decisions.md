@@ -64,6 +64,7 @@ One line per decision, with the reason. Project-wide rules are enforced in `open
 - **2026-10-10** — Pull requests merge with a merge commit, not squash, and each change is archived on its branch before the merge. *Why:* the history keeps each change's trail from proposal to verified code.
 - **2026-10-10** — Deploys run from the feature branch before it merges; the server switches to `master` after the merge.
 - **2026-10-10** — `add-production-deploy` is archived as the first commit on the login branch. *Why:* its last task (switching the server to `master`) can only run after the merge.
+- **2026-10-10** — Server checkouts are verified against GitHub's branch hash, taken from the maintainer's machine, never the server's own `origin/*`; after a branch switch, the gateway is recreated, not just reloaded. *Why:* a stale `origin/master` once checked out pre-deploy files and silently broke the gateway's config mount.
 
 ## Scope
 
