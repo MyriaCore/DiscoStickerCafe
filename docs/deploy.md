@@ -240,14 +240,15 @@ sudo tee /etc/letsencrypt/renewal-hooks/deploy/reload-gateway >/dev/null <<'EOF'
 #!/bin/bash
 # Reloads the production gateway after certbot renews a certificate.
 # Uses docker exec, not docker compose: compose would need secrets.env to interpolate.
+# Quiet on success: certbot labels any stderr from a hook as "error output".
 set -euo pipefail
 cid=$(docker ps -q --filter label=com.docker.compose.project=discosticker --filter label=com.docker.compose.service=gateway)
 if [ -z "$cid" ]; then
   echo "reload-gateway: gateway container is not running" >&2
   exit 1
 fi
-docker exec "$cid" nginx -t
-docker exec "$cid" nginx -s reload
+docker exec "$cid" nginx -t -q
+docker exec "$cid" nginx -s reload 2>&1
 EOF
 sudo chmod 755 /etc/letsencrypt/renewal-hooks/deploy/reload-gateway
 sudo stat -c '%U %a' /etc/letsencrypt/renewal-hooks/deploy/reload-gateway     # root 755
@@ -255,6 +256,8 @@ sudo bash -n /etc/letsencrypt/renewal-hooks/deploy/reload-gateway; echo $?    # 
 ```
 
 The hook runs for real only once the stack is up. "Renewal" covers the end-to-end test.
+
+The hook is quiet on success. `nginx -t -q` prints only real errors, and the reload notice goes to stdout. So certbot reports "Hook 'deploy-hook' ran with output" with the reload notice, not "ran with error output". "error output" after a renewal therefore means something actually went wrong. Look in `/var/log/letsencrypt/letsencrypt.log`.
 
 ## Go live
 

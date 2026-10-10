@@ -17,13 +17,18 @@ Conventions for every task:
 
 ## 1. DNS (verify-only; Claude, any time)
 
-- [ ] 1.1 Confirm the existing records on two public resolvers. No DNS changes; www stays a CNAME to the apex (design D10).
+- [x] 1.1 Confirm the existing records on two public resolvers. No DNS changes; www stays a CNAME to the apex (design D10).
   Verify: `foreach ($r in '8.8.8.8','1.1.1.1') { @(Resolve-DnsName discosticker.cafe -Type A -Server $r -DnsOnly | Where-Object Section -eq 'Answer').IPAddress; @(Resolve-DnsName discosticker.cafe -Type AAAA -Server $r -DnsOnly | Where-Object Section -eq 'Answer').IPAddress }; (Invoke-RestMethod 'https://dns.google/resolve?name=discosticker.cafe&type=CAA').Answer.data; (Resolve-DnsName www.discosticker.cafe -Type CNAME -Server 8.8.8.8 -DnsOnly | Where-Object Section -eq 'Answer').NameHost` prints, for each resolver, exactly one `207.148.19.168` and one `2001:19f0:1000:f32f:5400:6ff:fed6:d61a`, then `0 issue "letsencrypt.org"`, then `discosticker.cafe`.
+  Notes (2026-10-10): run as part of 7.1 (same command); every expected value matched. See the 7.1 notes.
 
 ## 2. Instance and firewall (user track)
 
-- [ ] 2.1 [user] In the Vultr console, confirm the instance: Debian 13 x64, IPv6 enabled, the firewall group attached, and its rules (v4 22 from `<home-ipv4>/32`; v4 80 and 443 from `0.0.0.0/0`; v6 80 and 443 from `::/0`; nothing else). This task does not verify the firewall; the outside probe in 7.8 does.
+- [x] 2.1 [user] In the Vultr console, confirm the instance: Debian 13 x64, IPv6 enabled, the firewall group attached, and its rules (v4 22 from `<home-ipv4>/32`; v4 80 and 443 from `0.0.0.0/0`; v6 80 and 443 from `::/0`; nothing else). This task does not verify the firewall; the outside probe in 7.8 does.
   Verify (server, as root): `cat /etc/debian_version; nproc; free -m | awk '/^Mem:/{print $2}'; ip -6 addr show scope global | grep inet6` prints `13.` followed by a minor version, `2`, a value of about 3800 or more, and a line containing `2001:19f0:1000:f32f:5400:6ff:fed6:d61a`.
+  Notes (2026-10-10, reported by the user; run as deploy):
+  - Output: `13.7`, `2`, `3916`, and the AAAA address `2001:19f0:1000:f32f:5400:6ff:fed6:d61a/64` (the SLAAC address from the router advertisement).
+  - There is also a second global address, `…:b56e:a591:d0ed:3c9b/64` (`noprefixroute`, stable-privacy style). It isn't in DNS. Docker publishes on `[::]`, so 80 and 443 also answer on it. Claude probed it from outside with the 7.8 port probe, and the result matches the main address: 80 and 443 open; 22, 5432, 8080, 8333 and 23646 closed. Outbound IPv6 may use either address. Nothing in this setup depends on which.
+  - The firewall rules themselves are verified by the outside probe in 7.8.
 
 - [x] 2.2 [user] Find out why ports 80 and 443 time out (design D11). On the server, as root:
   - Run `ss -tlnp`, `nft list ruleset`, and `command -v ufw && ufw status verbose`.
@@ -154,35 +159,40 @@ Conventions for every task:
   - **Certificate:** name `discosticker.cafe`, domains `discosticker.cafe www.discosticker.cafe`, ECDSA key, expires 2027-01-08 19:18 UTC (VALID: 89 days). `authenticator = webroot`.
   - The bootstrap container was removed, and the last check printed nothing.
 
-- [ ] 5.3 [user] Install the deploy hook from the runbook as `/etc/letsencrypt/renewal-hooks/deploy/reload-gateway`, owned by root with mode 755 (design D8). 7.9 exercises it end to end.
+- [x] 5.3 [user] Install the deploy hook from the runbook as `/etc/letsencrypt/renewal-hooks/deploy/reload-gateway`, owned by root with mode 755 (design D8). 7.9 exercises it end to end.
   Verify (server): `sudo stat -c '%U %a' /etc/letsencrypt/renewal-hooks/deploy/reload-gateway` prints `root 755`, and `sudo bash -n /etc/letsencrypt/renewal-hooks/deploy/reload-gateway; echo $?` prints `0`.
+  Notes (2026-10-10, confirmed by the user): `root 755`, then `0`.
 
 ## 6. Go live (join: needs sections 2, 3, 5 and 4.1–4.4)
 
-- [ ] 6.1 [user] Commit the section 4 work on `feature/deploy` (or ask Claude to commit it), then push the branch so the server can clone it.
+- [x] 6.1 [user] Commit the section 4 work on `feature/deploy` (or ask Claude to commit it), then push the branch so the server can clone it.
   Verify (PowerShell): `git ls-remote origin refs/heads/feature/deploy` prints the same hash as `git rev-parse feature/deploy`.
+  Notes (2026-10-10): pushed. Local and `origin/feature/deploy` are both `6e7c9b9f5355bbfa6c350ba7680f8934e203cf49` (checked by Claude with `git ls-remote`).
 
-- [ ] 6.2 [user] Clone to `/srv/discosticker` as deploy on `feature/deploy`: install `git` if it's missing, run `sudo install -d -o deploy -g deploy /srv/discosticker`, then `git clone --branch feature/deploy https://github.com/MyriaCore/DiscoStickerCafe.git /srv/discosticker`.
+- [x] 6.2 [user] Clone to `/srv/discosticker` as deploy on `feature/deploy`: install `git` if it's missing, run `sudo install -d -o deploy -g deploy /srv/discosticker`, then `git clone --branch feature/deploy https://github.com/MyriaCore/DiscoStickerCafe.git /srv/discosticker`.
   Verify (server): `git -C /srv/discosticker rev-parse HEAD` prints the hash from 6.1, `git -C /srv/discosticker branch --show-current` prints `feature/deploy`, and `stat -c '%U' /srv/discosticker` prints `deploy`.
+  Notes (2026-10-10, reported by the user): the clone printed `6e7c9b9f5355bbfa6c350ba7680f8934e203cf49` (matches 6.1), then `feature/deploy`, then `deploy`.
 
-- [ ] 6.3 [user] Create `/srv/discosticker/secrets.env` by hand with the runbook's generator (design D13): only if the file doesn't exist, under `umask 077`, with hex values from `openssl rand`, and printing nothing.
+- [x] 6.3 [user] Create `/srv/discosticker/secrets.env` by hand with the runbook's generator (design D13): only if the file doesn't exist, under `umask 077`, with hex values from `openssl rand`, and printing nothing.
   Verify (server, from `/srv/discosticker`):
   - `stat -c '%U:%G %a' secrets.env` prints `deploy:deploy 600`.
   - `diff <(cut -d= -f1 secrets.env) <(grep -Ev '^(#|$)' secrets.env.example | cut -d= -f1); echo $?` prints only `0`.
   - `git check-ignore -q secrets.env; echo $?` prints `0`.
+  Notes (2026-10-10, reported by the user): `deploy:deploy 600`, then `0` (the names match `secrets.env.example`), then `0` (gitignored). No values were printed or shared.
 
-- [ ] 6.4 [user] Build and start: `$Prod up --build -d --wait --wait-timeout 900`. If the build runs out of memory, run `$Prod build api`, then `$Prod build gateway`, then the `up` command again.
+- [x] 6.4 [user] Build and start: `$Prod up --build -d --wait --wait-timeout 900`. If the build runs out of memory, run `$Prod build api`, then `$Prod build gateway`, then the `up` command again.
   Verify (server): `$Prod up --build -d --wait --wait-timeout 900; echo "exit=$?"` prints `exit=0`. `$Prod ps -a --format '{{.Service}} | {{.Status}} | {{.Ports}}'` shows:
   - gateway, api, postgres and seaweedfs `(healthy)`
   - bucket-init `Exited (0)`
   - ports only on the gateway, and only 80 and 443 (on `0.0.0.0` and `[::]`)
+  Notes (2026-10-10, reported by the user): the build fit in 4 GB, so the out-of-memory fallback wasn't needed. `$Prod ps -a` showed api, gateway, postgres and seaweedfs `(healthy)` and bucket-init `Exited (0)`. Host ports appeared only on the gateway: `0.0.0.0:80`, `[::]:80`, `0.0.0.0:443` and `[::]:443`. The `exit=` line wasn't in the paste.
 
 ## 7. Smoke checks (Claude from PowerShell unless marked [user])
 
-- [ ] 7.1 DNS is unchanged after go-live.
+- [x] 7.1 DNS is unchanged after go-live.
   Verify: the 1.1 command prints the same values.
 
-- [ ] 7.2 Plain HTTP redirects to HTTPS; www redirects to the apex; ACME paths and unknown hosts are not redirected.
+- [x] 7.2 Plain HTTP redirects to HTTPS; www redirects to the apex; ACME paths and unknown hosts are not redirected.
   Verify:
   - `foreach ($u in 'http://discosticker.cafe/api/health','http://www.discosticker.cafe/x','https://www.discosticker.cafe/x','http://discosticker.cafe/.well-known/acme-challenge/x') { curl.exe -sS -o NUL -w "$u -> %{http_code} %{redirect_url}\n" $u }` prints, in order:
     - `301 https://discosticker.cafe/api/health`
@@ -191,40 +201,57 @@ Conventions for every task:
     - `404` with an empty redirect URL
   - `curl.exe -s -o NUL -H "Host: example.com" http://207.148.19.168/; "exit=$LASTEXITCODE"` prints a non-zero exit (empty reply, from the 444).
 
-- [ ] 7.3 The TLS certificate is valid and covers both names; bare-IP handshakes are refused.
+- [x] 7.3 The TLS certificate is valid and covers both names; bare-IP handshakes are refused.
   Verify:
   - `foreach ($h in 'discosticker.cafe','www.discosticker.cafe') { $t = New-Object Net.Sockets.TcpClient($h,443); $s = New-Object Net.Security.SslStream($t.GetStream()); $s.AuthenticateAsClient($h); $x = New-Object Security.Cryptography.X509Certificates.X509Certificate2 $s.RemoteCertificate; $h; $x.Issuer; $x.NotAfter; ($x.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.17' }).Format($false); $t.Dispose() }` throws no exception. For both names it prints an issuer containing `O=Let's Encrypt`, a NotAfter about 89 days out, and SANs of exactly `discosticker.cafe` and `www.discosticker.cafe`.
   - `curl.exe -k -sS -o NUL https://207.148.19.168/; "exit=$LASTEXITCODE"` prints a TLS handshake error and a non-zero exit.
 
-- [ ] 7.4 Health over IPv4 and IPv6.
+- [x] 7.4 Health over IPv4 and IPv6.
   Verify:
   - `(Invoke-RestMethod https://discosticker.cafe/api/health).status` prints `UP`.
   - `curl.exe -4 -fsS https://discosticker.cafe/api/health` and `curl.exe -6 -fsS https://discosticker.cafe/api/health` each print a body containing `"status":"UP"`.
   - Optional [user] second IPv6 check from the myriaco.re server: `curl -6 -fsS https://discosticker.cafe/api/health` contains `"status":"UP"`.
 
-- [ ] 7.5 The api prefixes return the api's JSON 404.
+- [x] 7.5 The api prefixes return the api's JSON 404.
   Verify: `foreach ($p in '/oauth2/x','/login/oauth2/x','/s/x') { curl.exe -sS -o NUL -w "$p %{http_code} %{content_type}\n" "https://discosticker.cafe$p" }` prints `404 application/json` for each path.
 
-- [ ] 7.6 The static root is served, and an unknown path returns 404.
+- [x] 7.6 The static root is served, and an unknown path returns 404.
   Verify: `foreach ($p in '/','/nope/') { curl.exe -sS -o NUL -w "$p %{http_code}\n" "https://discosticker.cafe$p" }` prints `/ 200` and `/nope/ 404`.
 
-- [ ] 7.7 Security headers are on static, proxied and error responses.
+- [x] 7.7 Security headers are on static, proxied and error responses.
   Verify: `foreach ($p in '/','/api/health','/nope/') { "== $p"; curl.exe -sI "https://discosticker.cafe$p" | Select-String -Pattern '^(strict-transport-security|x-content-type-options|referrer-policy|x-frame-options):' }` prints four lines under each path:
   - `strict-transport-security: max-age=300` (no `includeSubDomains` or `preload`)
   - `x-content-type-options: nosniff`
   - `referrer-policy: strict-origin-when-cross-origin`
   - `x-frame-options: DENY`
+  Notes for 7.1–7.7 (2026-10-10 16:27 local, run by Claude from Windows PowerShell 5.1 against the live site):
+  - 7.1: on both 8.8.8.8 and 1.1.1.1, one A record `207.148.19.168` and one AAAA record `2001:19f0:1000:f32f:5400:6ff:fed6:d61a`. CAA is `0 issue "letsencrypt.org"`; www is a CNAME to `discosticker.cafe`.
+  - 7.2: `http://…/api/health` returns 301 to `https://discosticker.cafe/api/health`. `http://www…/x` and `https://www…/x` each return 301 to `https://discosticker.cafe/x`. The ACME path returns 404 with no redirect. A request with Host `example.com` to the bare IP gets curl exit 52 (empty reply, from the 444).
+  - 7.3: both names present issuer `CN=YE2, O=Let's Encrypt`, NotAfter 2027-01-08, and SANs `discosticker.cafe` and `www.discosticker.cafe`. A bare-IP TLS request gets curl exit 35 (handshake refused).
+  - 7.4: `UP`; `curl.exe -4` and `curl.exe -6` both return `{"groups":["liveness","readiness"],"status":"UP"}`.
+  - 7.5: `/oauth2/x`, `/login/oauth2/x` and `/s/x` each return `404 application/json`.
+  - 7.6: `/` returns 200; `/nope/` returns 404.
+  - 7.7: `/`, `/api/health` and `/nope/` each carry all four headers: HSTS exactly `max-age=300`, `nosniff`, `strict-origin-when-cross-origin`, `DENY`.
 
-- [ ] 7.8 Only 22, 80 and 443 are reachable from outside. This also verifies the firewall group rules from 2.1.
+- [x] 7.8 Only 22, 80 and 443 are reachable from outside. This also verifies the firewall group rules from 2.1.
   Verify:
   - Run the port probe from the maintainer's home network. On `207.148.19.168`, 22, 80 and 443 are `open`. On `2001:19f0:1000:f32f:5400:6ff:fed6:d61a`, 80 and 443 are `open`. Every other line is `closed`, including IPv6 port 22, and 5432, 8080, 8333 and 23646 on both addresses.
   - [user] On the server, `sudo ss -tlnp` shows listeners only for sshd on 22 and docker-proxy on 80 and 443. `$Prod ps --format '{{.Service}} {{.Ports}}'` shows ports only on the gateway.
+  Notes (2026-10-10):
+  - **Outside probe (Claude, 16:27):** IPv4 22, 80 and 443 open; IPv6 80 and 443 open; everything else closed on both addresses, including IPv6 22. The second, non-DNS IPv6 address gives the same result (see 2.1).
+  - **Server (reported by the user):** `ss -tlnp` lists only `sshd` on 22 (`0.0.0.0` and `[::]`) and `docker-proxy` on 80 and 443 (`0.0.0.0` and `[::]`). `$Prod ps` shows host ports only on the gateway; the other services list container ports only.
+  - sshd also listens on IPv6, but the Vultr group has no IPv6 rule for 22, and the outside probe confirms IPv6 22 is closed.
 
-- [ ] 7.9 [user] Certificate renewal runs end to end through the running gateway, including the deploy hook.
+- [x] 7.9 [user] Certificate renewal runs end to end through the running gateway, including the deploy hook.
   Verify (server): `sudo certbot renew --dry-run --run-deploy-hooks` prints `Congratulations, all simulated renewals succeeded` and no hook error. `$Prod logs --since 5m gateway | grep -i reconfiguring` shows the reload.
+  Notes (2026-10-10 20:32 UTC, reported by the user):
+  - `Congratulations, all simulated renewals succeeded`. The gateway log shows `signal 1 (SIGHUP) received … reconfiguring`, so the deploy hook found the gateway by its labels and reloaded nginx.
+  - certbot printed "Hook 'deploy-hook' ran with error output", but the hook exited 0. certbot labels anything a hook writes to stderr as "error output", and nginx writes its normal `test is successful` and `signal process started` messages to stderr.
+  - **Fix applied:** the hook now runs `nginx -t -q` and `nginx -s reload 2>&1` (runbook and design D8 updated). The maintainer reinstalled it on the server; `bash -n` printed `0`, and a second `certbot renew --dry-run --run-deploy-hooks` succeeded with "Hook 'deploy-hook' ran with output" (only the reload notice), with no "error output" line.
 
-- [ ] 7.10 [user] Reboot recovery: run `sudo reboot` on the server and don't log in again. Claude then polls from Windows.
+- [x] 7.10 [user] Reboot recovery: run `sudo reboot` on the server and don't log in again. Claude then polls from Windows.
   Verify: `$d = (Get-Date).AddMinutes(6); do { try { $st = (Invoke-RestMethod https://discosticker.cafe/api/health -TimeoutSec 5).status } catch { $st = $null; Start-Sleep 10 } } until ($st -eq 'UP' -or (Get-Date) -gt $d); $st` prints `UP`.
+  Notes (2026-10-10, polled by Claude from Windows): the maintainer ran `sudo reboot` and didn't log back in. The poll saw the site go down at 16:34:41 local and return `UP` at 16:35:27 (about 46 s seen from outside), with no manual steps. Afterwards: health `UP` over IPv4 and IPv6; `/` 200; `/nope/` 404; `/s/x` `404 application/json`; http still redirects 301 to https; all four security headers present.
 
 - [ ] 7.11 [user] After the PR merges, switch the server to `master` with `git -C /srv/discosticker switch master` and `git -C /srv/discosticker pull --ff-only`.
   Verify (server): `git -C /srv/discosticker branch --show-current` prints `master`, and `git -C /srv/discosticker rev-parse HEAD` equals `git -C /srv/discosticker rev-parse origin/master`. Then Claude reruns the 7.4 checks, which still return `UP`.

@@ -99,7 +99,8 @@ Planning checks (2026-10-10):
 
 ### D8. Deploy hook reloads the gateway through `docker exec`
 - `/etc/letsencrypt/renewal-hooks/deploy/reload-gateway` is a root-owned, mode-755 bash script. Its content is in `docs/deploy.md`.
-- It finds the container by the labels `com.docker.compose.project=discosticker` and `com.docker.compose.service=gateway`, then runs `docker exec <id> nginx -t` and `docker exec <id> nginx -s reload`. It exits non-zero if the gateway isn't running.
+- It finds the container by the labels `com.docker.compose.project=discosticker` and `com.docker.compose.service=gateway`, then runs `docker exec <id> nginx -t -q` and `docker exec <id> nginx -s reload 2>&1`. It exits non-zero if the gateway isn't running or the config test fails.
+- It writes nothing to stderr on success. certbot labels any stderr from a hook as "error output", so normal nginx notices would appear as false errors in certbot's log, the only place a failed renewal shows up while there's no monitoring. Found in 7.9 and fixed then.
 - It doesn't use `docker compose exec`: every compose command interpolates the `${VAR:?}` secrets and would need `secrets.env`.
 - *Trade-off:* the hook depends on the compose project name `discosticker` (fixed by `name:` in compose.yaml).
 
