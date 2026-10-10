@@ -29,7 +29,7 @@ Planning checks (2026-10-10):
   - Rate limits: 5 certificates per exact set of names per 7 days, and 5 failed validations per name per account per hour.
   - Certificates last 90 days by default. The default profile moves to 64 days on 2027-02-10 and 45 days on 2028-02-16; certbot's 1/3 rule follows on its own.
   - OCSP URLs were removed from certificates in May 2025, and the OCSP servers shut down in August 2025.
-- **Probe from the maintainer's machine during planning:** 22 open. 80, 443, 5432, 8080, 8333 and 23646 timed out (dropped, not refused) on IPv4, and every probed port timed out on IPv6. Nothing listens on 80 or 443 yet, so if the firewall group allowed them and the host had no firewall, they would have been refused rather than timed out. Something drops them; task 2.2 finds out what.
+- **Probe from the maintainer's machine during planning:** 22 open. 80, 443, 5432, 8080, 8333 and 23646 timed out (dropped, not refused) on IPv4, and every probed port timed out on IPv6. Task 2.2 found the cause: ufw was active on the host with default-deny incoming and only 22 allowed, so it dropped 80 and 443. tcpdump on the server also showed SYNs to closed ports answered with RST, but those RSTs never reached the maintainer's machine. So from outside, a port with no listener times out instead of being refused, and the probe can't tell "dropped" from "nothing listening". Task 2.3 applied the host-firewall branch of D11.
 - **The `nginx:1.30.5-alpine` image** contains `curl` and BusyBox `wget`, but not `openssl`.
 
 ## Goals / Non-Goals
@@ -115,13 +115,18 @@ Planning checks (2026-10-10):
 - The certificate covers discosticker.cafe and www.discosticker.cafe, and www returns 301 to the apex on both ports.
 - *Trade-off:* both names must validate at issuance. The CNAME already resolves, so without www in the certificate, https on www would show a certificate error. *Alternative:* delete the www CNAME and serve the apex only.
 
-### D11. Host firewall: decided by task 2.2
-Task 2.2 finds what drops ports 80 and 443 today, and task 2.3 applies the matching branch:
+### D11. Host firewall: decided by task 2.2 (resolved: ufw stays, allowing 22, 80 and 443)
+**Outcome (2026-10-10):** the host-firewall branch applied. ufw was active (default-deny incoming, only 22 allowed) and was dropping 80 and 443. It stays on, with `ufw allow 80/tcp` and `ufw allow 443/tcp` added to the existing 22 rule. `ufw status` lists all three for IPv4 and IPv6. The runbook's Firewall section records this.
+
+The branches as planned, before 2.2 ran:
 - **The firewall group rules are wrong or missing:** fix them in the Vultr console (v4 80 and 443 from `0.0.0.0/0`, v6 80 and 443 from `::/0`, v4 22 from `<home-ipv4>/32`, nothing else).
 - **A host firewall is active (ufw or an nftables ruleset):** keep it, and allow 22, 80 and 443 on IPv4 and IPv6. It backs up the Vultr group for anything that listens on the host, such as sshd. IPv6 traffic to 80 and 443 also needs it: on the IPv4-only bridge, that traffic goes through `docker-proxy` on the host's INPUT chain, so a host firewall that doesn't allow it blocks IPv6 visitors. IPv4 published ports are DNATed by Docker and bypass the host firewall either way.
 - **No host firewall is active:** the Vultr group is the only filter. Don't add ufw: it can't see Docker's IPv4 publishing, so it would claim to filter traffic that it doesn't.
 
-Task 2.3 records which branch applied in the runbook. The outside probe (7.8) proves the result either way.
+The outside probe (7.8) proves the result. The ufw rules for 22, 80 and 443 have different jobs:
+- **IPv6 80 and 443 are required.** IPv6 visitors reach the gateway through `docker-proxy` on the host, which goes through ufw's INPUT rules. Without them, IPv6 visitors and Let's Encrypt's IPv6 validation would be dropped.
+- **IPv4 80 and 443 are redundant for Docker's ports,** because Docker DNATs IPv4 published ports before ufw sees them. They are kept so that `ufw status` matches what is actually reachable, and so that a non-Docker listener on 80, like the 2.2 test server, behaves the same.
+- **22 (both families) protects sshd,** which listens on the host. It backs up the Vultr rule that allows only the home IPv4.
 
 ### D12. SSH
 - The firewall group allows 22 from the maintainer's home IPv4 only (a recorded decision).
@@ -217,7 +222,7 @@ One line each. Not added to `docs/decisions.md` by this change.
 - www.discosticker.cafe is in the certificate and redirects to the apex. *Why:* the name already resolves.
 - HSTS starts at `max-age=300`, with no includeSubDomains or preload. *Why:* a TLS mistake can be backed out in minutes.
 - No CSP this weekend; production sends nosniff, a strict-origin referrer policy, and frame denial. *Why:* small, fixed, and enough for an image host.
-- A host firewall, if the image has one, is kept and allows 22/80/443 on both families; otherwise the Vultr group is the only filter. *Why:* Docker bypasses host firewalls for IPv4 published ports.
+- ufw, active on Vultr's Debian 13 image, stays on and allows 22, 80 and 443 on IPv4 and IPv6, behind the Vultr group. *Why:* IPv6 visitors reach docker-proxy through ufw, while Docker's IPv4 published ports bypass it.
 - Long-running services restart `unless-stopped`; bucket-init stays one-shot. *Why:* the site comes back after a reboot with no manual steps.
 - The deploy user is in the `docker` group. *Why:* root-equivalent, but reachable only by key from one IPv4 address.
 - IPv6 client addresses are fixed in the login change, not now. *Why:* nothing records client addresses until login.

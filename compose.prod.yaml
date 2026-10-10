@@ -1,0 +1,38 @@
+# Production override, used only on the server (see docs/deploy.md):
+#   docker compose -f compose.yaml -f compose.prod.yaml --env-file secrets.env ...
+# It adds no secrets: every secret stays in compose.yaml's ${VAR:?} lines.
+
+services:
+  postgres:
+    restart: unless-stopped
+
+  seaweedfs:
+    restart: unless-stopped
+
+  # One-shot: with a restart policy it would rerun in a loop.
+  bucket-init:
+    restart: "no"
+
+  api:
+    restart: unless-stopped
+
+  gateway:
+    restart: unless-stopped
+    # !override replaces the local 127.0.0.1:8080 mapping instead of merging with it.
+    # Container ports equal the public ports, so $scheme and $server_port in the
+    # forwarded headers come out as https and 443.
+    ports: !override
+      - "80:80"
+      - "443:443"
+    volumes:
+      # All of /etc/letsencrypt, because live/ holds symlinks into archive/.
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      # certbot's webroot, served on port 80 for ACME HTTP-01 renewals.
+      - /var/www/certbot:/var/www/certbot:ro
+      # The production server blocks replace conf.d/local.conf. Mount the directory, not the
+      # file: git replaces changed files with new inodes, and a file mount would keep the old one.
+      - ./gateway/prod:/etc/nginx/conf.d:ro
+    healthcheck:
+      # Nothing listens on 8080 in production. --resolve sends the real SNI, so the
+      # default server doesn't reject the handshake, and the real certificate is checked.
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "--resolve", "discosticker.cafe:443:127.0.0.1", "https://discosticker.cafe/"]

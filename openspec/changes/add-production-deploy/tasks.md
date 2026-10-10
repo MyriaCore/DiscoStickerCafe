@@ -48,13 +48,14 @@ Conventions for every task:
 
 ## 3. Host setup (user track; commands from docs/deploy.md "Host setup")
 
-- [ ] 3.1 [user] Create the `deploy` user as root:
+- [x] 3.1 [user] Create the `deploy` user as root:
   - Install `sudo` if it's missing.
   - `adduser --gecos '' deploy`, setting a password for sudo and the Vultr console.
   - `usermod -aG sudo deploy`.
-  - Copy root's `authorized_keys` into `/home/deploy/.ssh` (directory mode 700, file mode 600, owned by deploy).
+  - Create `/home/deploy/.ssh` (mode 700) with an empty `authorized_keys` (mode 600), both owned by deploy, then append the maintainer's public key from Windows as given in the runbook. Don't copy root's `authorized_keys`: Vultr may not install a key at creation.
   On Windows, add the `Host discosticker` entry to `$HOME\.ssh\config` (`HostName 207.148.19.168`, `AddressFamily inet`, `User deploy`) as given in the runbook.
-  Verify (PowerShell): `ssh discosticker id` prints `uid=` with `(deploy)` and lists `sudo` among the groups.
+  Verify (PowerShell): `ssh -o PasswordAuthentication=no discosticker id` prints `uid=` with `(deploy)` and lists `sudo` among the groups.
+  Notes (2026-10-10, reported by the user): Vultr installed no SSH key at creation. Root's and deploy's `authorized_keys` were both empty, and root logged in with a password. The maintainer added their public key to deploy's `authorized_keys` directly. `ssh -o PasswordAuthentication=no discosticker id` works. Root's password login is still on until 3.3.
 
 - [ ] 3.2 [user] Install Docker Engine and the Compose plugin from Docker's apt repository, as in the runbook (docs.docker.com/engine/install/debian). Then `sudo usermod -aG docker deploy`, log out, and log in again.
   Verify (server): `docker run --rm hello-world | grep -F 'Hello from Docker!'; docker compose version` prints the hello line and a Compose version of v2.24.4 or newer.
@@ -67,7 +68,7 @@ Conventions for every task:
 
 ## 4. Repo changes (Claude track)
 
-- [ ] 4.1 Write `docs/deploy.md`, the runbook, first, because the user track follows it from 3.1 on. It needs these `##` sections:
+- [x] 4.1 Write `docs/deploy.md`, the runbook, first, because the user track follows it from 3.1 on. It needs these `##` sections:
   - **SSH access:** the `~/.ssh/config` entry and why `AddressFamily inet` is needed.
   - **Firewall:** the Vultr rules with the `<home-ipv4>` placeholder, the branch applied in 2.3, and the port probe.
   - **Host setup:** sections 3.1–3.4.
@@ -86,7 +87,7 @@ Conventions for every task:
   - `Select-String -Path docs\deploy.md -SimpleMatch -Pattern '<home-ipv4>','AddressFamily inet','$Prod build api','$Prod build gateway','--run-deploy-hooks'` prints at least one line for each pattern.
   - [user] `git grep -n --untracked -F -e (curl.exe -4 -s https://api.ipify.org)` and `git grep -n --untracked -F -e (curl.exe -6 -s https://api64.ipify.org)` print nothing. This covers every tracked and new file (gitignored files excluded), including `docs\deploy.md` and `openspec\changes\add-production-deploy\`, at any depth.
 
-- [ ] 4.2 Move the routes into a shared include without changing local behavior (design D2):
+- [x] 4.2 Move the routes into a shared include without changing local behavior (design D2):
   - `gateway/routes.conf` gets `root`, `index`, `absolute_redirect off`, the four `^~` proxy locations and `location /`, unchanged.
   - `gateway/conf.d/local.conf` gets `server { listen 8080; include /etc/nginx/routes.conf; }`.
   - `gateway/nginx.conf` includes `/etc/nginx/conf.d/*.conf`.
@@ -97,7 +98,7 @@ Conventions for every task:
   - `foreach ($p in '/oauth2/x','/login/oauth2/x','/s/x','/nope/') { curl.exe -sS -o NUL -w "$p %{http_code} %{content_type}\n" "http://localhost:8080$p" }` prints `404 application/json` for the three api paths and `404 text/html` for `/nope/`.
   - `(Select-String gateway\routes.conf -SimpleMatch -Pattern 'include /etc/nginx/proxy_headers.conf').Count` is `4`.
 
-- [ ] 4.3 Add `gateway/security_headers.conf` (design D9) and `gateway/prod/discosticker.conf` (design D3): port 80 with ACME and the redirect, the port-80 default server returning 444, 443 for the apex, 443 for www.discosticker.cafe redirecting to the apex, and the 443 default server with `ssl_reject_handshake on`. No `ssl_stapling`. The Dockerfile copies `security_headers.conf`. Test the config against a throwaway self-signed certificate:
+- [x] 4.3 Add `gateway/security_headers.conf` (design D9) and `gateway/prod/discosticker.conf` (design D3): port 80 with ACME and the redirect, the port-80 default server returning 444, 443 for the apex, 443 for www.discosticker.cafe redirecting to the apex, and the 443 default server with `ssl_reject_handshake on`. No `ssl_stapling`. The Dockerfile copies `security_headers.conf`. Test the config against a throwaway self-signed certificate:
   `docker compose --env-file secrets.env.example build gateway; $le = Join-Path $env:TEMP 'dsc-letsencrypt'; New-Item -ItemType Directory -Force "$le\live\discosticker.cafe" | Out-Null; docker run --rm -v "${le}:/out" nginx:1.30.5-alpine sh -ec 'apk add -q --no-cache openssl; openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=discosticker.cafe -keyout /out/live/discosticker.cafe/privkey.pem -out /out/live/discosticker.cafe/fullchain.pem'; docker run --rm --add-host api:127.0.0.1 -v "${le}:/etc/letsencrypt:ro" -v "${PWD}\gateway\prod:/etc/nginx/conf.d:ro" discosticker-gateway nginx -T > "$le\nginx-T.txt"`
   Verify:
   - The last command prints `nginx: configuration file /etc/nginx/nginx.conf test is successful`.
@@ -108,7 +109,7 @@ Conventions for every task:
   - `(Select-String gateway\prod\discosticker.conf -SimpleMatch -Pattern 'include /etc/nginx/security_headers.conf').Count` is `2`.
   - `Select-String gateway\security_headers.conf -Pattern 'always;'` prints the four header lines, with HSTS exactly `"max-age=300"`.
 
-- [ ] 4.4 Add `compose.prod.yaml` (design D4–D7):
+- [x] 4.4 Add `compose.prod.yaml` (design D4–D7):
   - On the gateway: `ports: !override ["80:80", "443:443"]`, plus read-only mounts `/etc/letsencrypt:/etc/letsencrypt`, `/var/www/certbot:/var/www/certbot`, and the directory `./gateway/prod:/etc/nginx/conf.d`.
   - The healthcheck `curl -fsS -o /dev/null --resolve discosticker.cafe:443:127.0.0.1 https://discosticker.cafe/`.
   - `restart: unless-stopped` on gateway, api, postgres and seaweedfs; `restart: "no"` on bucket-init.
