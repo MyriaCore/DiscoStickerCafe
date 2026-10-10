@@ -11,12 +11,17 @@ context: |
   - Frontend: Next.js + TypeScript, static export (output: 'export'). No SSR, no API
     routes, no middleware, no next/image optimization; everything must work as static files.
   - Backend: Spring Boot + Spring Security, OAuth2 login with Discord. Postgres + Flyway.
-  - Storage: SeaweedFS's S3 endpoint locally, S3 in production. The app uses only the
-    S3 API; endpoint, credentials, and path-style access are configuration. Not MinIO:
-    its free images are no longer published.
+  - Storage: SeaweedFS (S3 API) locally and, this weekend, in production on the app
+    server's internal network; AWS S3 replaces it later as a configuration change plus
+    a data copy. The app uses only the S3 API; endpoint, credentials, and path-style
+    access are configuration. Not MinIO: its free images are no longer published.
   - Gateway: nginx, single origin. / -> frontend; /api/*, /oauth2/*, /login/oauth2/*,
     and /s/* -> Spring Boot.
   - Everything runs under docker compose.
+
+  Decision log: docs/decisions.md records why each project decision was made. Edit it
+  only when the user explicitly asks; decisions are approved in the user's PM session
+  before they go in. If a change would contradict a recorded decision, stop and ask.
 
   Non-negotiable constraints:
   - Test-first where practical. Every task states how it is verified: a test, a type
@@ -35,6 +40,7 @@ context: |
     never put a value in code, config, compose files, tests, or artifacts. The committed
     secrets.env.example lists the same names with placeholder values. Production secret
     handling is undecided and is not in scope.
+  - Never run `docker compose config` with secrets.env, or `docker inspect` on services that hold secrets; both print secret values. Config checks use secrets.env.example only.
 
 rules:
   proposal:

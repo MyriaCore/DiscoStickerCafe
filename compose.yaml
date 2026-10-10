@@ -1,0 +1,120 @@
+# Run with: docker compose --env-file secrets.env ...
+# Each service names only the secrets it needs; never use `env_file: secrets.env`.
+# Every secret is required (`:?`), so a missing value stops compose instead of starting with a blank one.
+name: discosticker
+
+x-bucket: &bucket stickers
+
+services:
+  postgres:
+    image: postgres:18.6-alpine
+    environment:
+      POSTGRES_USER: discosticker
+      POSTGRES_DB: discosticker
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in secrets.env}
+    volumes:
+      # Postgres 18+ declares its VOLUME here; PGDATA is /var/lib/postgresql/18/docker.
+      - postgres-data:/var/lib/postgresql
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "discosticker", "-d", "discosticker"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.48
+    # Same image tag and flags as TestcontainersConfiguration in api/src/test; keep the two in sync.
+    command: >-
+      mini -dir=/data -webdav=false -admin.ui=false -master.telemetry=false
+      -s3.port.iceberg=0 -s3.port.lance=0 -s3.autoCreateBucket=false
+    environment:
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:?set S3_ACCESS_KEY in secrets.env}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in secrets.env}
+    volumes:
+      - seaweedfs-data:/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8333/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # One-shot: creates the bucket through the S3 API (proving the keys work), then exits.
+  # Safe to re-run: an existing bucket passes head-bucket.
+  bucket-init:
+    image: amazon/aws-cli:2.37.12
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        for i in $$(seq 1 30); do
+          if aws s3api head-bucket --bucket "$$BUCKET" --endpoint-url http://seaweedfs:8333 >/dev/null 2>&1 ||
+             aws s3api create-bucket --bucket "$$BUCKET" --endpoint-url http://seaweedfs:8333 >/dev/null; then
+            echo "bucket $$BUCKET ready"
+            exit 0
+          fi
+          sleep 2
+        done
+        echo "bucket $$BUCKET not ready after 30 attempts" >&2
+        exit 1
+    environment:
+      BUCKET: *bucket
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:?set S3_ACCESS_KEY in secrets.env}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in secrets.env}
+    networks: [backend]
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+
+  api:
+    build: api
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/discosticker
+      SPRING_DATASOURCE_USERNAME: discosticker
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in secrets.env}
+      APP_S3_ENDPOINT: http://seaweedfs:8333
+      APP_S3_REGION: us-east-1
+      APP_S3_BUCKET: *bucket
+      APP_S3_PATH_STYLE_ACCESS: "true"
+      APP_S3_ACCESS_KEY: ${S3_ACCESS_KEY:?set S3_ACCESS_KEY in secrets.env}
+      APP_S3_SECRET_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in secrets.env}
+    networks: [edge, backend]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      bucket-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/health | grep -q UP"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    # The only published port, bound to loopback.
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks: [edge]
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      # 127.0.0.1, not localhost: localhost resolves to ::1 first and nginx listens on IPv4 only.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+# The gateway is only on edge, so it can't reach postgres or seaweedfs.
+networks:
+  edge:
+  backend:
+
+volumes:
+  postgres-data:
+  seaweedfs-data:
