@@ -148,7 +148,7 @@ The outside probe (7.8) proves the result. The ufw rules for 22, 80 and 443 have
 - Redeploy later: `git pull`, then `$Prod up --build -d --wait`. If the build runs out of memory, build the api and gateway images one at a time (`$Prod build api`, then `$Prod build gateway`) and run `up` again. No swapfile.
 
 ### D15. Updates
-- unattended-upgrades with Debian's default origins installs security updates only.
+- unattended-upgrades with Debian's default origins installs Debian security updates and stable point-release updates. On this server, `unattended-upgrade --dry-run -d` lists the allowed origins as `label=Debian` and `label=Debian-Security` for trixie, plus `trixie-security`. Stable point releases are conservative bug fixes, so this is accepted.
 - Docker's apt repository is not an allowed origin, so Docker Engine updates are manual. That avoids surprise daemon restarts. With D6, a daemon restart would recover anyway.
 
 ## Threats considered (TLS, host, SSH, secrets, ports, headers, renewal)

@@ -57,14 +57,20 @@ Conventions for every task:
   Verify (PowerShell): `ssh -o PasswordAuthentication=no discosticker id` prints `uid=` with `(deploy)` and lists `sudo` among the groups.
   Notes (2026-10-10, reported by the user): Vultr installed no SSH key at creation. Root's and deploy's `authorized_keys` were both empty, and root logged in with a password. The maintainer added their public key to deploy's `authorized_keys` directly. `ssh -o PasswordAuthentication=no discosticker id` works. Root's password login is still on until 3.3.
 
-- [ ] 3.2 [user] Install Docker Engine and the Compose plugin from Docker's apt repository, as in the runbook (docs.docker.com/engine/install/debian). Then `sudo usermod -aG docker deploy`, log out, and log in again.
+- [x] 3.2 [user] Install Docker Engine and the Compose plugin from Docker's apt repository, as in the runbook (docs.docker.com/engine/install/debian). Then `sudo usermod -aG docker deploy`, log out, and log in again.
   Verify (server): `docker run --rm hello-world | grep -F 'Hello from Docker!'; docker compose version` prints the hello line and a Compose version of v2.24.4 or newer.
+  Notes (2026-10-10, reported by the user): `Hello from Docker!`, `Docker Compose version v5.6.0`, and `systemctl is-enabled docker` prints `enabled`.
 
-- [ ] 3.3 [user] Harden sshd with `/etc/ssh/sshd_config.d/00-hardening.conf` (`PermitRootLogin no`, `PasswordAuthentication no`, `KbdInteractiveAuthentication no`), then `sudo sshd -t` and `sudo systemctl reload ssh`. Keep the current SSH session open until the checks pass.
+- [x] 3.3 [user] Harden sshd with `/etc/ssh/sshd_config.d/00-hardening.conf` (`PermitRootLogin no`, `PasswordAuthentication no`, `KbdInteractiveAuthentication no`), then `sudo sshd -t` and `sudo systemctl reload ssh`. Keep the current SSH session open until the checks pass.
   Verify (server): `sudo sshd -T | grep -E '^(permitrootlogin|passwordauthentication|kbdinteractiveauthentication) '` prints three lines, each ending in `no`. Then (PowerShell) `ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password,keyboard-interactive discosticker true` and `ssh root@discosticker true` each print `Permission denied (publickey).`
+  Notes (2026-10-10, reported by the user): `sshd -T` shows `permitrootlogin no`, `passwordauthentication no` and `kbdinteractiveauthentication no`. `ssh -o PasswordAuthentication=no discosticker id` prints `uid=1001(deploy)` with groups `sudo` and `docker`. The forced-password attempt and `ssh root@discosticker true` each print `Permission denied (publickey).`
 
-- [ ] 3.4 [user] Install unattended-upgrades with `sudo apt install -y unattended-upgrades apt-listchanges` and enable it with `sudo dpkg-reconfigure -plow unattended-upgrades` (answer Yes).
+- [x] 3.4 [user] Install unattended-upgrades with `sudo apt install -y unattended-upgrades apt-listchanges` and enable it with `sudo dpkg-reconfigure -plow unattended-upgrades` (answer Yes).
   Verify (server): `cat /etc/apt/apt.conf.d/20auto-upgrades` shows `"1"` for both `Update-Package-Lists` and `Unattended-Upgrade`. `systemctl list-timers apt-daily-upgrade.timer` shows a NEXT time. `sudo unattended-upgrade --dry-run -d 2>&1 | grep -i 'allowed origins'` includes `Debian-Security`.
+  Notes (2026-10-10, reported by the user):
+  - `20auto-upgrades` has `"1"` for both settings.
+  - Both timers have run and have a next run scheduled: `apt-daily-upgrade` at 2026-10-11 06:43 UTC and `apt-daily` at 16:45 UTC.
+  - The allowed origins are `codename=trixie,label=Debian`, `codename=trixie,label=Debian-Security` and `codename=trixie-security,label=Debian-Security`. So stable point releases install automatically too, not only security fixes. design D15 and the runbook were corrected to match. No Docker origin is allowed.
 
 ## 4. Repo changes (Claude track)
 
@@ -128,10 +134,11 @@ Conventions for every task:
 
 ## 5. Certificates (user track; commands from docs/deploy.md "Certificates")
 
-- [ ] 5.1 [user] Run `sudo apt install -y certbot` and `sudo install -d -m 755 /var/www/certbot`.
+- [x] 5.1 [user] Run `sudo apt install -y certbot` and `sudo install -d -m 755 /var/www/certbot`.
   Verify (server): `certbot --version` prints `certbot 4.0.0`. `systemctl list-timers certbot.timer` shows a NEXT time. `stat -c '%U %a' /var/www/certbot` prints `root 755`.
+  Notes (2026-10-10, reported by the user): `certbot 4.0.0`, `certbot.timer` next run scheduled (2026-10-11 10:57 UTC), `/var/www/certbot` is `root 755`.
 
-- [ ] 5.2 [user] First issuance (design D7). Needs 2.3 (port 80 reachable on both address families) and 3.2 (Docker).
+- [x] 5.2 [user] First issuance (design D7). Needs 2.3 (port 80 reachable on both address families) and 3.2 (Docker).
   - Start the bootstrap: `docker run -d --name acme-bootstrap -p 80:80 -v /var/www/certbot:/usr/share/nginx/html:ro nginx:1.30.5-alpine`.
   - Before the dry run, check port 80 over IPv6 while the bootstrap is running. 2.3 didn't prove it, and Let's Encrypt validates over IPv6 when an AAAA record exists. From Windows (PowerShell): `foreach ($f in '-4','-6') { curl.exe $f -sS -o NUL -w "$f %{http_code}\n" --max-time 5 http://discosticker.cafe/ }` prints an HTTP status for each family (any 3-digit code, such as 403 from the empty webroot). `000`, or a timeout, means stop: fix the IPv6 path before any certbot request.
   - Dry run: `sudo certbot certonly --webroot -w /var/www/certbot -d discosticker.cafe -d www.discosticker.cafe --register-unsafely-without-email --agree-tos --dry-run`. No email address goes to Let's Encrypt: it stopped sending expiry emails in 2025, and renewal is automatic (D7).
@@ -141,6 +148,11 @@ Conventions for every task:
   - `sudo certbot certificates` shows `Certificate Name: discosticker.cafe`, `Domains: discosticker.cafe www.discosticker.cafe`, and `VALID: 89 days` (or 88).
   - `sudo grep '^authenticator' /etc/letsencrypt/renewal/discosticker.cafe.conf` prints `authenticator = webroot`.
   - `docker ps -aq --filter name=acme-bootstrap` prints nothing.
+  Notes (2026-10-10, reported by the user):
+  - **Port 80 check, with the bootstrap running:** `-4 403` and `-6 403`, so port 80 works end to end on both families. This closes the IPv6 gap left open in 2.3.
+  - **Certbot:** the staging dry run succeeded, and the real issuance succeeded with no email registered.
+  - **Certificate:** name `discosticker.cafe`, domains `discosticker.cafe www.discosticker.cafe`, ECDSA key, expires 2027-01-08 19:18 UTC (VALID: 89 days). `authenticator = webroot`.
+  - The bootstrap container was removed, and the last check printed nothing.
 
 - [ ] 5.3 [user] Install the deploy hook from the runbook as `/etc/letsencrypt/renewal-hooks/deploy/reload-gateway`, owned by root with mode 755 (design D8). 7.9 exercises it end to end.
   Verify (server): `sudo stat -c '%U %a' /etc/letsencrypt/renewal-hooks/deploy/reload-gateway` prints `root 755`, and `sudo bash -n /etc/letsencrypt/renewal-hooks/deploy/reload-gateway; echo $?` prints `0`.

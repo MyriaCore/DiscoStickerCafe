@@ -173,7 +173,7 @@ systemctl list-timers apt-daily-upgrade.timer         # shows a NEXT time
 sudo unattended-upgrade --dry-run -d 2>&1 | grep -i 'allowed origins'   # includes Debian-Security
 ```
 
-Only Debian security updates install automatically. Docker Engine comes from Docker's own repository, so update it by hand (`sudo apt update`, then `sudo apt upgrade`), when you can watch the stack restart.
+Debian's security updates and stable point-release updates install automatically: the allowed origins are `label=Debian` and `label=Debian-Security` for trixie, plus `trixie-security`. Docker's repository is not an allowed origin. Docker Engine comes from Docker's own repository, so update it by hand (`sudo apt update`, then `sudo apt upgrade`), when you can watch the stack restart.
 
 ## Certificates
 
