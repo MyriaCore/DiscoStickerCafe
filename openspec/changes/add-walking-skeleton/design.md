@@ -159,6 +159,11 @@ AWS SDK v2.30 and later sends CRC32 trailing checksums by default. SeaweedFS 4.4
 - **gateway:** `wget -qO- http://localhost:8080/ >/dev/null`
 - Start order: gateway after api (healthy). api after postgres (healthy) and bucket-init (completed successfully). bucket-init after seaweedfs (healthy).
 
+### D14. No commands that print secret values (resolved: project rule)
+- `CLAUDE.md` and `openspec/config.yaml` now carry the rule: never run `docker compose config` with `secrets.env`, or `docker inspect` on services that hold secrets, because both print secret values. Config checks use `secrets.env.example` only.
+- In this change, the secret-holding services are postgres, seaweedfs, bucket-init, and api. Every Verify line that runs `docker compose config` passes `secrets.env.example`.
+- *Alternative:* redact the output, for example by piping `config` through a filter. Rejected: a single unfiltered run leaks the values into the terminal and the session transcript.
+
 ## Threats considered (storage and secrets)
 
 | # | Threat | Handling | Verified by |
@@ -194,7 +199,6 @@ This is a new project with nothing to migrate. To roll back, close the PR, or re
 
 ## Open Questions
 
-- Should the rule "never run `docker compose config` with `secrets.env` or `docker inspect` on secret-bearing services" become a project rule? Under the project's rule process, adding it means updating both `CLAUDE.md` and `openspec/config.yaml`, and it needs approval in the PM session first. This change follows the rule in its Verify lines either way.
 - Production S3 credentials provider (the SDK default chain with an IAM role, or static credentials). Deferred to the hosting decision; D3's properties don't block either option.
 
 ## Recorded-decision candidates
@@ -205,7 +209,6 @@ These are for approval in the PM session. `docs/decisions.md` is only copied in 
 - Local storage runs SeaweedFS `weed mini` pinned to 4.48, with the admin UI, WebDAV, telemetry, Iceberg/Lance, and bucket auto-creation turned off.
 - A one-shot bucket-init container creates the bucket through the S3 API, and the api waits for it to exit 0.
 - Each container receives only the secrets it needs, by name, through compose interpolation from `secrets.env`. Every secret is required (`:?`), and `env_file: secrets.env` is not used.
-- Config checks use `secrets.env.example`; `docker compose config` with real secrets and `docker inspect` on secret-bearing services are not run.
 - The Next.js export is copied into the gateway image by a multi-stage build, with `trailingSlash: true` and no fallback to `index.html`.
 - Only the gateway publishes a port (`127.0.0.1:8080`), and it is not on the network with Postgres and SeaweedFS.
 - `/api/health` is Actuator's health endpoint, with details hidden.

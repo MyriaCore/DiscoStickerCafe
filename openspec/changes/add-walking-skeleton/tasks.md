@@ -173,5 +173,5 @@ Conventions for every task:
 ## Workflow follow-up
 
 - Open a PR from `feature/skeleton` to `master` after all tasks pass.
-- Bring the "Recorded-decision candidates" in design.md and the open question about a new project rule to the PM session. Edit `docs/decisions.md`, `CLAUDE.md` rules, or `openspec/config.yaml` only on explicit approval.
+- Bring the "Recorded-decision candidates" in design.md to the PM session. Edit `docs/decisions.md` only on explicit approval.
 - Archive the change with `/opsx:archive` after merge.
