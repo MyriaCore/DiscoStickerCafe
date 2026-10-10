@@ -157,7 +157,7 @@ Conventions for every task:
 
 ## 7. Docs and commands
 
-- [x] 7.1 Copy `C:\Users\Marcus\Downloads\decisions.md` to `docs/decisions.md` byte for byte (`mkdir -p docs && cp /c/Users/Marcus/Downloads/decisions.md docs/decisions.md`). Do not edit, reformat, reorder, or add entries.
+- [x] 7.1 Copy the user's PM-approved decisions.md to `docs/decisions.md` byte for byte. Do not edit, reformat, reorder, or add entries.
   Verify: `sha256sum docs/decisions.md` prints `311a589670528e1ab12c6a9119bf8df6ebf1742c59fb1c7eca555c95758aed88`
 
 - [x] 7.2 Fill in the CLAUDE.md "Commands" section with bash (Git Bash) forms. Add a PowerShell form only where it differs. The commands are:
