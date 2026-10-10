@@ -6,13 +6,15 @@ Signed-in Discord users upload images and get an unguessable link to a downscale
 
 - `frontend/`: Next.js + TypeScript, static export (`output: 'export'`). No SSR, API routes, or middleware.
 - `api/`: Spring Boot + Spring Security (OAuth2 login with Discord), Postgres + Flyway.
-- Storage: MinIO locally, S3 in production.
+- Storage: SeaweedFS (S3 API) locally, S3 in production. The app uses only the S3 API; endpoint, credentials, and path-style access are configuration. Do not use MinIO: its free images are no longer published.
 - `gateway/`: nginx, single origin. `/` goes to the frontend. `/api/*`, `/oauth2/*`, `/login/oauth2/*`, and `/s/*` go to Spring Boot.
 - docker compose runs everything.
 
 ## Workflow
 
 Changes go through OpenSpec: `/opsx:explore` → `/opsx:propose` → `/opsx:apply` → `/opsx:archive`. Project context and artifact rules are in `openspec/config.yaml`.
+
+Work happens on a branch per feature or large effort (one branch may hold several OpenSpec changes), merged to `master` by pull request. Do not commit directly to `master`.
 
 ## Rules every change follows
 
