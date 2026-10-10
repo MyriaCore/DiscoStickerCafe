@@ -1,0 +1,41 @@
+schema: spec-driven
+
+context: |
+  Product: DiscoSticker.cafe. Signed-in Discord users upload an image and get an
+  unguessable link to a downscaled PNG that renders sticker-sized in Discord.
+  Weekend portfolio project: keep scope small; security and auditability are core goals.
+
+  Layout: frontend/ (Next.js), api/ (Spring Boot), gateway/ (nginx), docker compose at root.
+
+  Stack:
+  - Frontend: Next.js + TypeScript, static export (output: 'export'). No SSR, no API
+    routes, no middleware, no next/image optimization; everything must work as static files.
+  - Backend: Spring Boot + Spring Security, OAuth2 login with Discord. Postgres + Flyway.
+  - Storage: MinIO locally, S3 in production (same S3 API).
+  - Gateway: nginx, single origin. / -> frontend; /api/*, /oauth2/*, /login/oauth2/*,
+    and /s/* -> Spring Boot.
+  - Everything runs under docker compose.
+
+  Non-negotiable constraints:
+  - Test-first where practical. Every task states how it is verified: a test, a type
+    check, or a command against the running stack.
+  - Uploads: size limit enforced at nginx and in Spring; type detected from content
+    (magic bytes), never from extension or Content-Type; dimensions checked before full
+    decode; image re-encoded server-side to PNG. Original bytes are never stored or
+    served; the audit record keeps their SHA-256.
+  - Per-user upload rate limits.
+  - Audit records for logins, uploads (accepted and rejected).
+  - Public IDs are 128-bit random, base64url-encoded. Database keys never appear in URLs.
+  - The browser talks only to nginx. No CORS configuration.
+  - Ban and account-age checks run at login, before a session is created.
+
+rules:
+  proposal:
+    - State what is out of scope.
+    - Call out any effect on the security constraints in context, or say there is none.
+  design:
+    - For anything touching auth, sessions, uploads, or storage, list the threats
+      considered and how each is handled.
+  tasks:
+    - Write the test task before the implementation task it covers, where practical.
+    - Every task ends with a "Verify:" line giving the exact test, type check, or command.
