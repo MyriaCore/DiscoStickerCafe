@@ -38,8 +38,8 @@ context: |
   - Bans are set manually in the database for now; no ban UI or ban audit events.
   - Secrets live only in gitignored secrets.env. Reference secrets by variable name only;
     never put a value in code, config, compose files, tests, or artifacts. The committed
-    secrets.env.example lists the same names with placeholder values. Production secret
-    handling is undecided and is not in scope.
+    secrets.env.example lists the same names with placeholder values.
+    In production, secrets.env is created by hand on the server in the deploy checkout, owned by the deploy user with mode 600, with values generated on the server; it is never committed, copied into an image, or handled by Claude Code.
   - Never run `docker compose config` with secrets.env, or `docker inspect` on services that hold secrets; both print secret values. Config checks use secrets.env.example only.
 
 rules:
