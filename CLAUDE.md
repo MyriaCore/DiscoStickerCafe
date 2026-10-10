@@ -16,6 +16,8 @@ Changes go through OpenSpec: `/opsx:explore` → `/opsx:propose` → `/opsx:appl
 
 Work happens on a branch per feature or large effort (one branch may hold several OpenSpec changes), merged to `master` by pull request. Do not commit directly to `master`.
 
+`docs/decisions.md` records why each project decision was made. Edit it only when the user explicitly asks; decisions are approved in the user's PM session before they go in. If a change would contradict a recorded decision, stop and ask.
+
 ## Rules every change follows
 
 - Work test-first where practical. Every task states how it is verified: a test, a type check, or a command against the running stack.

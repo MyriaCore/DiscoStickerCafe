@@ -18,6 +18,10 @@ context: |
     and /s/* -> Spring Boot.
   - Everything runs under docker compose.
 
+  Decision log: docs/decisions.md records why each project decision was made. Edit it
+  only when the user explicitly asks; decisions are approved in the user's PM session
+  before they go in. If a change would contradict a recorded decision, stop and ask.
+
   Non-negotiable constraints:
   - Test-first where practical. Every task states how it is verified: a test, a type
     check, or a command against the running stack.
