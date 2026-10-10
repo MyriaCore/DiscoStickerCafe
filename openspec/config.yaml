@@ -11,9 +11,10 @@ context: |
   - Frontend: Next.js + TypeScript, static export (output: 'export'). No SSR, no API
     routes, no middleware, no next/image optimization; everything must work as static files.
   - Backend: Spring Boot + Spring Security, OAuth2 login with Discord. Postgres + Flyway.
-  - Storage: SeaweedFS's S3 endpoint locally, S3 in production. The app uses only the
-    S3 API; endpoint, credentials, and path-style access are configuration. Not MinIO:
-    its free images are no longer published.
+  - Storage: SeaweedFS (S3 API) locally and, this weekend, in production on the app
+    server's internal network; AWS S3 replaces it later as a configuration change plus
+    a data copy. The app uses only the S3 API; endpoint, credentials, and path-style
+    access are configuration. Not MinIO: its free images are no longer published.
   - Gateway: nginx, single origin. / -> frontend; /api/*, /oauth2/*, /login/oauth2/*,
     and /s/* -> Spring Boot.
   - Everything runs under docker compose.

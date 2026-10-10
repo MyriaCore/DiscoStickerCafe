@@ -6,7 +6,7 @@ Signed-in Discord users upload images and get an unguessable link to a downscale
 
 - `frontend/`: Next.js + TypeScript, static export (`output: 'export'`). No SSR, API routes, or middleware.
 - `api/`: Spring Boot + Spring Security (OAuth2 login with Discord), Postgres + Flyway.
-- Storage: SeaweedFS (S3 API) locally, S3 in production. The app uses only the S3 API; endpoint, credentials, and path-style access are configuration. Do not use MinIO: its free images are no longer published.
+- Storage: SeaweedFS (S3 API) locally and, this weekend, in production on the app server's internal network; AWS S3 replaces it later as a configuration change plus a data copy. The app uses only the S3 API; endpoint, credentials, and path-style access are configuration. Do not use MinIO: its free images are no longer published.
 - `gateway/`: nginx, single origin. `/` goes to the frontend. `/api/*`, `/oauth2/*`, `/login/oauth2/*`, and `/s/*` go to Spring Boot.
 - docker compose runs everything.
 

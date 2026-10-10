@@ -11,3 +11,6 @@ frontend/.next/
 frontend/out/
 *.tsbuildinfo
 next-env.d.ts
+
+# Editor settings
+.vscode/
