@@ -46,7 +46,7 @@ Signed-in users can't do anything yet: login is live at https://discosticker.caf
   - Fixed messages for each reason code.
 - **Runtime:** the api runs with `-Xmx1g`, so memory behaves the same locally and on the 4 GB server.
 - **Database:** Flyway migrations V3 (`stickers`) and V4 (`upload_audit`).
-- **Runbook:** `docs/deploy.md` gains upload smoke checks, a recent-uploads query and an orphan-object check.
+- **Runbook:** `docs/deploy.md` gains upload smoke checks, a recent-uploads query and an orphan-object check, and a manual takedown procedure (the row first, then the object; audit rows kept).
 - **Production redeploy** from `feature/upload`, following the runbook's Redeploy section.
 
 ## Out of scope
@@ -54,6 +54,7 @@ Signed-in users can't do anything yet: login is live at https://discosticker.caf
 - GIF and WebP uploads, and keeping animation (next weekend).
 - The "My stickers" page, owner-only delete, admin ban-and-purge, a report link, and importing server stickers.
 - An automatic sweep of orphaned storage objects (it comes with ban-and-purge). This change adds a runbook check only.
+- An in-app or audited takedown. This change adds a manual runbook procedure only.
 - Ending existing sessions when a user is banned. Upload is blocked at once; other signed-in endpoints still work until the session ends.
 - A cap on rejected upload attempts. Only accepted uploads are rate-limited this weekend.
 - Applying embedded color profiles (Display P3 photos are treated as sRGB), and PNG `eXIf` orientation.
