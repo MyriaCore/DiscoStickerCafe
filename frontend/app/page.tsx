@@ -54,28 +54,34 @@ export default function Home() {
   }
 
   return (
-    <main>
-      <h1>DiscoSticker.cafe</h1>
-      {notice && <p role="alert">{notice}</p>}
-      {session.status === "loading" && <p>Checking sign-in…</p>}
+    <main className="page">
+      <section className="splash">
+        <img className="splash-logo" src="/discosticker-logo.svg" alt="" />
+        <div>
+          <h1>Your pics, sticker-sized.</h1>
+          <p className="splash-line">Upload a pic and get a link that shows up sticker-sized in Discord.</p>
+        </div>
+      </section>
+      {notice && <p className="alert" role="alert">{notice}</p>}
+      {session.status === "loading" && <p className="status">Checking sign-in…</p>}
       {session.status === "signed-out" && (
-        <p>
+        <p className="session">
           {/* A full navigation, not fetch: the OAuth flow is a chain of top-level redirects. */}
-          <a href="/oauth2/authorization/discord">Sign in with Discord</a>
+          <a className="button button-filled" href="/oauth2/authorization/discord">Sign in with Discord</a>
         </p>
       )}
       {session.status === "signed-in" && (
         <>
-          <p>
+          <p className="session">
             Signed in as {session.me.displayName}.{" "}
-            <button type="button" onClick={handleSignOut}>
+            <button className="button button-outlined" type="button" onClick={handleSignOut}>
               Sign out
             </button>
           </p>
           <StickerUpload onSessionEnded={handleSessionEnded} />
         </>
       )}
-      {session.status === "unavailable" && <p>Sign-in is unavailable right now. Please try again later.</p>}
+      {session.status === "unavailable" && <p className="status">Sign-in is unavailable right now. Please try again later.</p>}
     </main>
   );
 }
@@ -100,10 +106,10 @@ function StickerUpload({ onSessionEnded }: { onSessionEnded: () => void }) {
   }, []);
 
   if (limits === "loading") {
-    return <p>Loading the upload form…</p>;
+    return <p className="status">Loading the upload form…</p>;
   }
   if (limits === null) {
-    return <p>Uploads are unavailable right now. Please try again later.</p>;
+    return <p className="status">Uploads are unavailable right now. Please try again later.</p>;
   }
   const loaded: Limits = limits;
 
@@ -152,33 +158,34 @@ function StickerUpload({ onSessionEnded }: { onSessionEnded: () => void }) {
 
   const size = loaded.stickerSize;
   return (
-    <section aria-labelledby="upload-heading">
+    <section className="card" aria-labelledby="upload-heading">
       <h2 id="upload-heading">Make a sticker</h2>
-      <p>
+      <p className="hint">
         {typeNames(loaded)} images up to {megabytes(loaded)} MB, {loaded.uploadsPerHour} uploads per hour. Images
         larger than {size} × {size} pixels are shrunk to fit.
       </p>
-      <p>Animated images become a still image.</p>
-      <form onSubmit={handleSubmit}>
+      <p className="hint">Animated images become a still image.</p>
+      <form className="upload-form" onSubmit={handleSubmit}>
         <input
+          className="file-input"
           type="file"
           aria-label="Image to upload"
           // In the api's order, JPEG first: Safari converts HEIC photos to the first listed type.
           accept={loaded.acceptedTypes.join(",")}
           onChange={(event) => handleFile(event.target.files?.[0] ?? null)}
         />{" "}
-        <button type="submit" disabled={!file || busy || message !== null}>
+        <button className="button button-filled" type="submit" disabled={!file || busy || message !== null}>
           {busy ? "Uploading…" : "Upload"}
         </button>
       </form>
-      {message && <p role="alert">{message}</p>}
+      {message && <p className="alert" role="alert">{message}</p>}
       {link && (
-        <p>
-          <label>
+        <p className="result">
+          <label className="result-label">
             Your sticker link:{" "}
-            <input ref={linkInput} type="text" readOnly value={link} size={link.length} onFocus={(e) => e.target.select()} />
+            <input className="result-link" ref={linkInput} type="text" readOnly value={link} size={link.length} onFocus={(e) => e.target.select()} />
           </label>{" "}
-          <button type="button" onClick={handleCopy}>
+          <button className="button button-filled" type="button" onClick={handleCopy}>
             {copied ? "Copied" : "Copy"}
           </button>
         </p>
