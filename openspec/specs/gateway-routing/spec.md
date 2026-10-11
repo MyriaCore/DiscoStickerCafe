@@ -87,7 +87,7 @@ In production, the gateway SHALL answer every HTTPS request for www.discosticker
 - **THEN** the gateway responds 301 with `Location: https://discosticker.cafe/x`
 
 ### Requirement: Security headers on every HTTPS response
-In production, every HTTPS response from the gateway SHALL carry `Strict-Transport-Security: max-age=300`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, and `X-Frame-Options: DENY`. This SHALL hold for static files, responses proxied from the backend, and error responses. `Strict-Transport-Security` SHALL NOT include `includeSubDomains` or `preload`. The gateway SHALL be the only source of these four headers: it SHALL NOT pass on copies sent by the backend, locally or in production.
+In production, every HTTPS response from the gateway SHALL carry `Strict-Transport-Security: max-age=300`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, and `X-Frame-Options: DENY`. `Strict-Transport-Security` SHALL NOT include `includeSubDomains` or `preload`. The gateway SHALL be the only source of these four headers: it SHALL NOT pass on copies sent by the backend, locally or in production.
 
 #### Scenario: Static page
 - **WHEN** a client requests `GET https://discosticker.cafe/`
