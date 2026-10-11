@@ -300,10 +300,13 @@ Conventions for every task:
   Notes (2026-10-11, reported by the user):
   - Passed on all seven checks, including the logo in the tab, phone width (375 px), focus rings, and unchanged error wording.
   - The report names seven checks and a 375 px width, while this list has ten items and says 360 px. Recorded as reported.
+  - The three items that report didn't name, per the user's later report:
+    - item 4 (the form's text and "Animated images become a still image.") was confirmed in production;
+    - items 8 (only localhost:8080 requests) and 10 (light with dark mode preferred) were checked by Claude in the browser pane, a separate session from the one that applied this change.
 
 ## 4. Production
 
-- [ ] 4.1 [user] Commit, push and deploy `feature/theme`.
+- [x] 4.1 [user] Commit, push and deploy `feature/theme`.
   1. **Windows (PowerShell 5.1):**
      - run `git status -sb` and `git log --oneline -3` first, and check nothing is unexpected;
      - commit the change;
@@ -320,7 +323,17 @@ Conventions for every task:
     - After `$Prod up -d --force-recreate --no-deps --wait gateway`, `$Prod exec gateway ls /etc/nginx/conf.d` lists `discosticker.conf`.
     - `$Prod exec gateway nginx -t -q; echo "nginx-t=$?"` prints `nginx-t=0`.
 
-- [ ] 4.2 [user] Production checks (Windows PowerShell 5.1).
+  Notes (2026-10-11, reported by the user):
+  - The server is on `feature/theme`, with `HEAD` `31cd8390c95ad859981527f73b42d049e8ce0c11`, equal to `ls-remote`.
+  - The server's logo hashes to `d5d773755c71a9136d56e9f173d4e32bfcaaa3e07e329cd857e1e419e02e25b4`.
+  - `up --build` printed `exit=0`. The gateway was recreated, `conf.d` lists `discosticker.conf`, and `nginx-t=0`.
+
+  Notes (2026-10-11, Claude):
+  - The commits are `a9c12cb` (change artifacts), `be95918` (theme) and `31cd839` (decision log).
+  - Local `HEAD` and `git ls-remote origin refs/heads/feature/theme` both print `31cd8390c95ad859981527f73b42d049e8ce0c11`.
+  - Committed blob, checked in Git Bash rather than by the Windows `cmd /c` form: `git cat-file blob 31cd8390c95ad859981527f73b42d049e8ce0c11:frontend/public/discosticker-logo.svg | sha256sum` prints `d5d773755c71a9136d56e9f173d4e32bfcaaa3e07e329cd857e1e419e02e25b4`.
+
+- [x] 4.2 [user] Production checks (Windows PowerShell 5.1).
   1. Run the production header check (Conventions).
   2. `foreach ($p in '/discosticker-logo.svg','/favicon.ico') { curl.exe -sS -o NUL -w "$p %{http_code} %{content_type}\n" "https://discosticker.cafe$p" }`
   3. `curl.exe -sS -o "$env:TEMP\ds-logo.svg" https://discosticker.cafe/discosticker-logo.svg; (Get-FileHash "$env:TEMP\ds-logo.svg").Hash`
@@ -341,6 +354,21 @@ Conventions for every task:
      - `x-content-type-options: nosniff` exactly once;
      - no `set-cookie` line.
   6. The tab shows the logo (in Chrome, Edge or Firefox), sign-in and the upload work, and the link opens the PNG.
+
+  Notes (2026-10-11, reported by the user):
+  1. The header check printed `1` on all 25 lines.
+  2. `/discosticker-logo.svg 200 image/svg+xml` and `/favicon.ico 200 image/x-icon`.
+  3. The served logo hash was `D5D773755C71A9136D56E9F173D4E32BFCAAA3E07E329CD857E1E419E02E25B4`.
+  4. Both icon links and both splash strings were present.
+  5. `/s/eUaE03fuRb6HzrE8GUIuTA.png` gave:
+     - 200 and `content-type: image/png`;
+     - `content-length: 39090`;
+     - `cache-control: public, max-age=86400`;
+     - `x-content-type-options: nosniff` once;
+     - no `set-cookie`.
+
+     The status line was `HTTP/1.1 200`, not the `HTTP/2 200` Verify expects: Windows' `curl.exe` doesn't use HTTP/2 here. The expectation was a planning error, and the response passes on everything that Verify item checks.
+  6. In the browser, the tab shows the cup, sign-in and upload work, and the link opens the PNG.
 
 ## Workflow follow-up
 
