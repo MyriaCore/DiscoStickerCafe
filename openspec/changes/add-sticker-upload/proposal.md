@@ -46,7 +46,7 @@ Signed-in users can't do anything yet: login is live at https://discosticker.caf
   - Fixed messages for each reason code.
 - **Runtime:** the api runs with `-Xmx1g`, so memory behaves the same locally and on the 4 GB server.
 - **Database:** Flyway migrations V3 (`stickers`) and V4 (`upload_audit`).
-- **Runbook:** `docs/deploy.md` gains upload smoke checks, a recent-uploads query and an orphan-object check, and a manual takedown procedure (the row first, then the object; audit rows kept).
+- **Runbook:** `docs/deploy.md` gains upload smoke checks, a recent-uploads query and an orphan-object check, and a manual takedown procedure (shows the sticker and asks for confirmation; the row first, then the object; audit rows kept).
 - **Production redeploy** from `feature/upload`, following the runbook's Redeploy section.
 
 ## Out of scope

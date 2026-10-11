@@ -440,6 +440,43 @@ Conventions for every task:
     - On a scratch copy with `&&` put back in step 0, check 1 flags that line.
   - **Not rerun:** CLAUDE.md's Commands, because this task changes only `docs/deploy.md` and this file.
 
+- [x] 7.6 Add a confirmation pause to `docs/deploy.md` "Take down a sticker" (design D19; PM decision 2026-10-11 14:08).
+  - Merge the lookup, the confirmation and both deletes into one bash block after step 1's format check. The block:
+    1. looks up the sticker, and on zero rows prints "No sticker with that ID: stop";
+    2. otherwise prints the sticker's link (https://discosticker.cafe/s/<id>.png), its owner's Discord ID and its upload time;
+    3. asks "Type yes to delete it, anything else stops" (`read -r -p`);
+    4. only on the exact answer `yes`, runs the row delete and the guarded `s3 rm`;
+    5. on any other answer, prints "Stopped: nothing deleted".
+  - Keep the ID format guard, `-Atq` on the delete, and the `<id>.png` key check. Renumber the steps that follow.
+
+  Verify (a local dry run only, with a synthetic sticker as in 7.5; no production run):
+  - Answering `no`, and an empty answer, each print "Stopped: nothing deleted". The sticker's row count stays `1`, its object is still listed, and its link still returns `200 image/png`.
+  - Answering `yes` deletes both: the row count is `0`, the object is gone from the listing, the link returns `404 application/json`, and both `comm` lines of the orphan check print nothing.
+  - The runbook checks from add-discord-login 7.1 print nothing.
+
+  Notes (2026-10-11, Claude):
+  - **The new step 2:** a single `if … fi` block replaces the old steps 2 to 4, and Verify becomes step 3.
+    - It looks up the owner's Discord ID and the upload time (`to_char(... at time zone 'UTC', ...)`) with `psql -Atq`. An empty result prints "No sticker with that ID: stop".
+    - Otherwise it prints the link, the owner and the upload time, then runs `IFS= read -r -p "Type yes to delete it, anything else stops: " ANSWER`.
+    - Only `[[ $ANSWER == yes ]]` runs the `-Atq` row delete and the `<id>.png`-guarded `s3 rm`. Anything else prints "Stopped: nothing deleted".
+  - **`IFS=` before `read`:** it keeps leading and trailing spaces, so only exactly `yes` deletes.
+  - **One compound command:** the block is a single `if … fi`, so a paste leaves nothing after it for `read` to consume. The runbook says to paste it on its own.
+  - **Local dry run:** the harness is a throwaway script in the session scratchpad, not committed.
+    - Same synthetic sticker as in 7.5: a copy of a local test sticker's object under a fresh random ID, plus its row, with no audit row.
+    - Blocks 1 to 3 were extracted verbatim from `docs/deploy.md`. Only the `cd` line, `$Prod` and the ID changed.
+    - `$Prod` was a wrapper running `docker compose --env-file secrets.env` with stdin from `/dev/null`. Answers were piped in up front, and `docker compose exec` would otherwise read stdin and swallow the answer. On the server, the answer is typed after the lookup's exec has finished.
+    - bash shows `read -p`'s prompt only on a terminal, so the prompt isn't in the captured output.
+  - **Dry-run results:**
+    - Before any answer: row count `1`, object listed, link `200 image/png`.
+    - `no`: printed the link, `Owner: 160786816721485825 (Discord ID)`, `Uploaded: 2026-10-11 18:21:55 UTC`, then "Stopped: nothing deleted". Afterwards: row count `1`, object listed, link `200 image/png`.
+    - Empty answer: the same output and state as `no`.
+    - `yes`: printed `Returned object key: <id>.png` and `delete: s3://stickers/<id>.png`. Afterwards: row count `0`, the object no longer listed, link `404 application/json`.
+    - Orphan check: 4 objects and 4 rows, and both `comm` lines printed nothing.
+    - Step 3's server block printed `(0 rows)` for the audit query, as expected for a synthetic sticker, and `0` for the count.
+    - The local stack's four real stickers are unchanged.
+  - **Verify:** both 7.1 checks printed nothing.
+  - **Not rerun:** CLAUDE.md's Commands, because this task changes only `docs/deploy.md` and this file. No production command was run.
+
 ## 8. Serving stickers
 
 - [x] 8.1 Write `StickerServingIT` first (spec "Stickers served publicly", "Unknown and malformed sticker IDs look the same"; design D13). Each test first uploads a sticker through the API.
@@ -705,12 +742,24 @@ Conventions for every task:
   - `file` on the downloads: 120 × 160 RGB, 160 × 160 RGBA and 32 × 32 RGB.
   - Done: the phone result is recorded above, and step 4's phone check covers the photo link only.
 
-- [ ] 11.7 [user] Run the takedown procedure (`docs/deploy.md` "Uploads" → "Take down a sticker"; design D19) once in production, on one of the maintainer's own test stickers from 11.6.
+- [x] 11.7 [user] Run the takedown procedure (`docs/deploy.md` "Uploads" → "Take down a sticker"; design D19) once in production, on one of the maintainer's own test stickers from 11.6.
   Verify:
   - Before (PowerShell): `curl.exe -sS -o NUL -w "%{http_code} %{content_type}" https://discosticker.cafe/s/<id>.png` prints `200 image/png`. After: the same command prints `404 application/json`.
   - On the server, the orphan check prints nothing for both `comm` lines.
   - `$Prod exec postgres psql -U discosticker -d discosticker -c "select outcome, sticker_public_id from upload_audit where sticker_public_id = '<id>'"` still shows one `accepted` row.
   - `$Prod exec postgres psql -U discosticker -d discosticker -At -c "select count(*) from stickers where public_id = '<id>'"` prints `0`.
+
+  Notes (2026-10-11):
+  - Reported by the user: took down the maintainer's own test photo `H2ZiQwhbnSaDxXwThBypPQ` in production, following `docs/deploy.md` "Take down a sticker".
+    - Step 1 printed `ID ok`.
+    - Step 2 printed one row: `H2ZiQwhbnSaDxXwThBypPQ.png`, the maintainer's Discord ID, created 2026-10-11 17:13:23 UTC.
+    - Steps 3 and 4 ran. Their output lines weren't captured; the checks below verify their effect.
+    - Orphan check: both `comm` lines printed nothing. The object is gone, and the two remaining stickers each still have their object.
+    - `upload_audit` still has one `accepted` row for `H2ZiQwhbnSaDxXwThBypPQ`.
+    - `count(*)` from `stickers` for that ID printed `0`.
+  - Checked by Claude from Windows (as reported by the user): before the takedown, `curl.exe` printed `200 image/png`. After it, it printed `404 application/json`, and both remaining stickers still returned `200 image/png`.
+  - Re-checked by Claude from Windows in this session: `H2ZiQwhbnSaDxXwThBypPQ` prints `404 application/json`, and `9ye3r5Wy-pTL6Ib5gy6udg` and `xAsUaq-qkNbGYbTEtsq51A` print `200 image/png`.
+  - The maintainer meant to take down the icon (`xAsUaq-qkNbGYbTEtsq51A`), but the photo's ID was used, and nothing in the procedure asked for confirmation. That led to 7.6. PM decision (2026-10-11 14:08): no second production takedown. This run stands as proof that the delete works, and the confirmation pause is verified locally in 7.6.
 
 ## Workflow follow-up
 

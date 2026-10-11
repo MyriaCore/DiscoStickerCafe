@@ -642,9 +642,9 @@ Until owner delete and ban-and-purge arrive next weekend, a sticker is taken dow
 
 For the local stack, replace everything after the `|` with `docker compose --env-file secrets.env exec -T postgres psql -U discosticker -d discosticker`.
 
-Steps 1 to 4 run on the server, in one SSH session.
+The server parts of steps 1 to 3 run in one SSH session, because they share `$ID`.
 
-**1. Set the ID and check its format** before it reaches any SQL, so a typo or a stray quote can't. A bad ID prints `Not a sticker ID: stop` and leaves you in the shell. Steps 2, 3 and 5 repeat the check, so their SQL never runs with a bad ID:
+**1. Set the ID and check its format** before it reaches any SQL, so a typo or a stray quote can't. A bad ID prints `Not a sticker ID: stop` and leaves you in the shell. Steps 2 and 3 repeat the check, so their SQL never runs with a bad ID:
 
 ```bash
 cd /srv/discosticker
@@ -653,43 +653,47 @@ ID='<id>'
 if [[ $ID =~ ^[A-Za-z0-9_-]{21}[AQgw]$ ]]; then echo "ID ok"; else echo "Not a sticker ID: stop"; fi
 ```
 
-**2. Look up the sticker:** its object key, its owner's Discord ID and when it was uploaded. It must print one row. `(0 rows)` means the ID is wrong or the sticker is already gone, so stop. To ban the owner as well, use their `discord_id` with "Ban an account" under "Sign-in and bans".
+**2. Look up, confirm, delete.** One block shows the sticker, asks, and deletes only what it showed:
+
+- **What it shows:** the sticker's link, its owner's Discord ID and when it was uploaded. Open the link and check it's the sticker you mean. To ban the owner as well, use the Discord ID with "Ban an account" under "Sign-in and bans".
+- **The answer:** only the exact answer `yes` deletes. Anything else, including an empty answer, prints `Stopped: nothing deleted`.
+- **On `yes`:** it deletes the row, which takes the sticker offline, then the object, only if the returned key is exactly `<id>.png`. `-T` and `-q` make `KEY` exactly the returned key, with no terminal carriage return and no `DELETE 1` status line.
+- **Pasting:** paste the block on its own, without the lines after it, because the question reads the next line you enter.
 
 ```bash
 if [[ $ID =~ ^[A-Za-z0-9_-]{21}[AQgw]$ ]]; then
-  $Prod exec postgres psql -U discosticker -d discosticker -c "select s.object_key, u.discord_id, s.created_at from stickers s join users u on u.id = s.owner_id where s.public_id = '$ID'"
+  ROW=$($Prod exec -T postgres psql -U discosticker -d discosticker -Atq -c "select u.discord_id, to_char(s.created_at at time zone 'UTC', 'YYYY-MM-DD HH24:MI:SS') from stickers s join users u on u.id = s.owner_id where s.public_id = '$ID'")
+  if [[ -z $ROW ]]; then
+    echo "No sticker with that ID: stop"
+  else
+    IFS='|' read -r OWNER UPLOADED <<< "$ROW"
+    echo "Link:     https://discosticker.cafe/s/$ID.png"
+    echo "Owner:    $OWNER (Discord ID)"
+    echo "Uploaded: $UPLOADED UTC"
+    IFS= read -r -p "Type yes to delete it, anything else stops: " ANSWER
+    if [[ $ANSWER == yes ]]; then
+      KEY=$($Prod exec -T postgres psql -U discosticker -d discosticker -Atq -c "delete from stickers where public_id = '$ID' returning object_key")
+      echo "Returned object key: ${KEY:-none, so no row was deleted}"
+      if [[ $KEY == "$ID.png" ]]; then
+        $Prod run --rm --no-deps --entrypoint aws bucket-init s3 rm "s3://stickers/$KEY" --endpoint-url http://seaweedfs:8333
+      else
+        echo "Object not deleted: key '${KEY:-none}' isn't '$ID.png'"
+      fi
+    else
+      echo "Stopped: nothing deleted"
+    fi
+  fi
 else
   echo "Not a sticker ID: stop"
 fi
 ```
 
-**3. Delete the row.** This takes the sticker offline. `-T` and `-q` make `KEY` exactly the returned key, with no terminal carriage return and no `DELETE 1` status line:
-
-```bash
-unset KEY
-if [[ $ID =~ ^[A-Za-z0-9_-]{21}[AQgw]$ ]]; then
-  KEY=$($Prod exec -T postgres psql -U discosticker -d discosticker -Atq -c "delete from stickers where public_id = '$ID' returning object_key")
-  echo "Returned object key: ${KEY:-none, so no row was deleted}"
-else
-  echo "Not a sticker ID: stop"
-fi
-```
-
-**4. Delete the object,** only if the returned key is exactly `<id>.png`:
-
-```bash
-if [[ $KEY == "$ID.png" ]]; then
-  $Prod run --rm --no-deps --entrypoint aws bucket-init s3 rm "s3://stickers/$KEY" --endpoint-url http://seaweedfs:8333
-else
-  echo "Object not deleted: key '${KEY:-none}' isn't '$ID.png'"
-fi
-```
-
-- **Success:** it prints `delete: s3://stickers/<id>.png`.
-- **"Object not deleted":** step 3 deleted no row, or the key isn't the usual one. Stop, and run the orphan check before deleting anything.
+- **Success:** after `yes`, it prints `delete: s3://stickers/<id>.png`.
+- **"No sticker with that ID: stop":** the ID is wrong, or the sticker is already gone.
+- **"Object not deleted":** no row was deleted, or the key isn't the usual one. Stop, and run the orphan check before deleting anything.
 - **If `s3 rm` fails:** the sticker is still offline. Its object is now an orphan; delete it as shown under the orphan check.
 
-**5. Verify.** From Windows, the link must print `404 application/json`. A live sticker prints `200 image/png`, so run this before step 3 too to see the change:
+**3. Verify.** From Windows, the link must print `404 application/json`. A live sticker prints `200 image/png`, so run this before step 2 too to see the change:
 
 ```powershell
 curl.exe -sS -o NUL -w "%{http_code} %{content_type}" https://discosticker.cafe/s/<id>.png
