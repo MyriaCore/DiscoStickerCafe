@@ -44,8 +44,9 @@ class SecurityConfig {
 			// Signed-out requests don't create a session to save themselves in, and no saved
 			// request can choose where a login lands.
 			.requestCache((cache) -> cache.requestCache(new NullRequestCache()))
-			// XSRF-TOKEN cookie readable by the page, X-XSRF-TOKEN header on unsafe requests.
-			.csrf((csrf) -> csrf.spa())
+			// XSRF-TOKEN cookie readable by the page, X-XSRF-TOKEN header on unsafe requests. The token
+			// is read from the header only, so no request body is parsed before authorization.
+			.csrf((csrf) -> csrf.spa().csrfTokenRequestHandler(new HeaderOnlyCsrfTokenRequestHandler()))
 			.oauth2Login((login) -> login
 				// A custom login page turns off Spring's generated one; the entry point above
 				// already stops anything from redirecting here on its own.

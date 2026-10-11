@@ -1,5 +1,7 @@
 // The api's session endpoints. Same origin through nginx, so cookies flow with no CORS.
 
+import { readCookie } from "./cookies";
+
 export type Me = { discordId: string; displayName: string };
 
 /** The signed-in user, or null when signed out (401). */
@@ -43,14 +45,4 @@ export function loginMessage(code: string | null): string | null {
     default:
       return "Sign-in failed. Please try again.";
   }
-}
-
-function readCookie(name: string): string | null {
-  for (const part of document.cookie.split(";")) {
-    const [key, ...value] = part.trim().split("=");
-    if (key === name) {
-      return decodeURIComponent(value.join("="));
-    }
-  }
-  return null;
 }

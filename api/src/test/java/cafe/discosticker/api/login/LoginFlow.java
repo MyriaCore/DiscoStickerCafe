@@ -48,6 +48,69 @@ public final class LoginFlow {
 		return send("POST", path, headers);
 	}
 
+	public HttpResponse<String> post(String path, HttpRequest.BodyPublisher body, String... headers) {
+		return send("POST", path, body, headers);
+	}
+
+	public HttpResponse<String> head(String path, String... headers) {
+		return send("HEAD", path, headers);
+	}
+
+	/** A GET whose body is kept as bytes, for binary responses. */
+	public HttpResponse<byte[]> getBytes(String path, String... headers) {
+		return send("GET", path, HttpRequest.BodyPublishers.noBody(), HttpResponse.BodyHandlers.ofByteArray(), headers);
+	}
+
+	/** One part of a {@code multipart/form-data} body: a file when {@code filename} is set, else a field. */
+	public record FormPart(String name, String filename, String contentType, byte[] content) {
+
+		public static FormPart file(String name, String filename, String contentType, byte[] content) {
+			return new FormPart(name, filename, contentType, content);
+		}
+
+		public static FormPart field(String name, String value) {
+			return new FormPart(name, null, null, value.getBytes(StandardCharsets.UTF_8));
+		}
+
+	}
+
+	/** A {@code multipart/form-data} POST, built by hand so tests control every part. */
+	public HttpResponse<String> postMultipart(String path, List<FormPart> parts, String... headers) {
+		String boundary = "----test" + Long.toHexString(System.nanoTime());
+		java.io.ByteArrayOutputStream body = new java.io.ByteArrayOutputStream();
+		for (FormPart part : parts) {
+			StringBuilder head = new StringBuilder("--").append(boundary).append("\r\n");
+			head.append("Content-Disposition: form-data; name=\"").append(part.name()).append('"');
+			if (part.filename() != null) {
+				head.append("; filename=\"").append(part.filename()).append('"');
+			}
+			head.append("\r\n");
+			if (part.contentType() != null) {
+				head.append("Content-Type: ").append(part.contentType()).append("\r\n");
+			}
+			head.append("\r\n");
+			body.writeBytes(head.toString().getBytes(StandardCharsets.UTF_8));
+			body.writeBytes(part.content());
+			body.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
+		}
+		body.writeBytes(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+		String[] all = java.util.Arrays.copyOf(headers, headers.length + 2);
+		all[headers.length] = "Content-Type";
+		all[headers.length + 1] = "multipart/form-data; boundary=" + boundary;
+		return post(path, HttpRequest.BodyPublishers.ofByteArray(body.toByteArray()), all);
+	}
+
+	/**
+	 * The token as Spring renders it into server-side forms (XOR-masked, here with an all-zero mask):
+	 * the encoding a {@code _csrf} form field must use to be accepted when parameters are read.
+	 */
+	public static String xorMaskedCsrfToken(String rawToken) {
+		byte[] token = rawToken.getBytes(StandardCharsets.UTF_8);
+		byte[] masked = new byte[token.length * 2];
+		System.arraycopy(token, 0, masked, token.length, token.length);
+		return java.util.Base64.getUrlEncoder().encodeToString(masked);
+	}
+
 	/** Starts sign-in, as the frontend's link does. */
 	public Authorization startAuthorization(String... headers) {
 		HttpResponse<String> response = get("/oauth2/authorization/discord", headers);
@@ -114,8 +177,16 @@ public final class LoginFlow {
 	}
 
 	private HttpResponse<String> send(String method, String path, String... headers) {
-		HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(this.baseUrl + path))
-			.method(method, HttpRequest.BodyPublishers.noBody());
+		return send(method, path, HttpRequest.BodyPublishers.noBody(), headers);
+	}
+
+	private HttpResponse<String> send(String method, String path, HttpRequest.BodyPublisher body, String... headers) {
+		return send(method, path, body, HttpResponse.BodyHandlers.ofString(), headers);
+	}
+
+	private <T> HttpResponse<T> send(String method, String path, HttpRequest.BodyPublisher body,
+			HttpResponse.BodyHandler<T> handler, String... headers) {
+		HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(this.baseUrl + path)).method(method, body);
 		for (int i = 0; i < headers.length; i += 2) {
 			request.header(headers[i], headers[i + 1]);
 		}
@@ -126,7 +197,7 @@ public final class LoginFlow {
 				.collect(Collectors.joining("; ")));
 		}
 		try {
-			HttpResponse<String> response = this.http.send(request.build(), HttpResponse.BodyHandlers.ofString());
+			HttpResponse<T> response = this.http.send(request.build(), handler);
 			for (String header : response.headers().allValues("Set-Cookie")) {
 				store(header);
 			}

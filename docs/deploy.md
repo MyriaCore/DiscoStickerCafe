@@ -388,8 +388,18 @@ curl.exe -k -sS -o NUL https://207.148.19.168/; "exit=$LASTEXITCODE"
 curl.exe -4 -fsS https://discosticker.cafe/api/health
 curl.exe -6 -fsS https://discosticker.cafe/api/health
 
-# api prefixes, signed out: /api/me, /oauth2/x and /login/oauth2/x 401, /s/x 404, each application/json
-foreach ($p in '/api/me','/oauth2/x','/login/oauth2/x','/s/x') { curl.exe -sS -o NUL -w "$p %{http_code} %{content_type}\n" "https://discosticker.cafe$p" }
+# api prefixes, signed out: /api/me, /api/stickers/limits, /oauth2/x and /login/oauth2/x 401; /s/x and an unknown
+# sticker ID 404; each application/json
+foreach ($p in '/api/me','/api/stickers/limits','/oauth2/x','/login/oauth2/x','/s/x','/s/AAAAAAAAAAAAAAAAAAAAAA.png') { curl.exe -sS -o NUL -w "$p %{http_code} %{content_type}\n" "https://discosticker.cafe$p" }
+
+# Upload size limit, signed out: "big /api/stickers 413 text/html", "mid /api/stickers 403 application/json",
+# "two /api/logout 413 text/html". Only /api/stickers accepts more than 1m: 11.5 MiB is refused by nginx,
+# 10.5 MiB reaches the api (its CSRF 403, not a 502), and 2 MiB elsewhere is still refused by nginx.
+$d = Join-Path $env:TEMP 'upload-limit'; New-Item -ItemType Directory -Force $d | Out-Null
+foreach ($c in @(@('big',12058624,'/api/stickers'), @('mid',11010048,'/api/stickers'), @('two',2097152,'/api/logout'))) {
+  $f = Join-Path $d $c[0]; [IO.File]::WriteAllBytes($f, (New-Object byte[] $c[1]))
+  curl.exe -sS -o NUL -w "$($c[0]) $($c[2]) %{http_code} %{content_type}\n" -H 'Content-Type: application/octet-stream' --data-binary "@$f" "https://discosticker.cafe$($c[2])"
+}
 
 # Sign-in redirect and session cookie: all nine lines True. The redirect goes to Discord with the
 # production client ID, identify scope and redirect URI; the cookie is __Host-SESSION with each
@@ -415,6 +425,12 @@ foreach ($p in '/','/api/health','/nope/') {
   foreach ($n in $names) { '{0,-12} {1,-26} {2}' -f $p, $n, @($h | Select-String -Pattern "^${n}:").Count }
   '{0,-12} {1,-26} {2}' -f $p, 'hsts = max-age=300', @($h | Select-String -Pattern '^strict-transport-security: max-age=300$').Count
 }
+```
+
+After an upload, check one sticker link's headers (replace `<id>` with the ID from its link). Expect status 200, `content-type: image/png`, a `content-length`, `cache-control: public, max-age=86400` and `x-content-type-options: nosniff` once each, and no `set-cookie`:
+
+```powershell
+curl.exe -sSI "https://discosticker.cafe/s/<id>.png" | Select-String -Pattern '^(HTTP|content-type|content-length|cache-control|set-cookie|x-content-type-options):?'
 ```
 
 Then run the port probe from "Firewall", and check on the server:
@@ -518,6 +534,8 @@ $Prod build gateway
 $Prod up -d --wait --wait-timeout 900
 ```
 
+**The upload size limit** (`client_max_body_size` in `location = /api/stickers`) lives in `gateway/routes.conf`, which is built into the gateway image, not mounted like `gateway/prod/`. Changing it needs a gateway rebuild (`$Prod up --build -d --wait gateway`); a reload doesn't pick it up. Keep it above the api's `app.upload.max-file-size` and below `server.tomcat.max-swallow-size` (both in `api/src/main/resources/application.yml`).
+
 **A change to `gateway/prod/` only** needs no rebuild. The directory is mounted into the gateway, so pull, check that the container sees the new file, and reload:
 
 ```bash
@@ -559,7 +577,7 @@ Their client IDs are public and set in `compose.yaml` and `compose.prod.yaml`. E
 $Prod exec postgres psql -U discosticker -d discosticker -c "insert into users (discord_id, banned_at) values (<id>, now()) on conflict (discord_id) do update set banned_at = now()"
 ```
 
-A ban takes effect at the account's next login: sign-in checks it before any session exists, and a rejected attempt is audited as `rejected | banned`. A session that already exists keeps working until it ends (8 hours idle). To end it now, restart the api. Sessions are kept in memory, so this signs **everyone** out:
+A ban takes effect at the account's next login: sign-in checks it before any session exists, and a rejected attempt is audited as `rejected | banned`. A ban also blocks uploads at once, even from a session that already exists: each upload checks it, and a refused upload is audited in `upload_audit` as `rejected | banned`. Other signed-in endpoints (`/api/me`, sign-out) keep working until the session ends (8 hours idle). To end it now, restart the api. Sessions are kept in memory, so this signs **everyone** out:
 
 ```bash
 $Prod restart api
@@ -579,6 +597,28 @@ $Prod logs --since 24h api | grep 'Login failed before'
 ```
 
 **Known limitation:** audit records hold no visitor IP addresses, but nginx's access log still does, in the gateway's Docker container log. That's IPv4 addresses only, because IPv6 visitors currently appear as the Docker bridge address. The log uses the default `json-file` driver with no rotation configured. Rotation and retention come next weekend, with the IP-storage work.
+
+## Uploads
+
+Stickers are re-encoded PNGs in the private `stickers` bucket, one row each in `stickers`. Every upload attempt by a signed-in user that passed the CSRF check has one row in `upload_audit`: `accepted`, `rejected` with a fixed reason, or `failed | error` when storing it went wrong. Uploads refused earlier (signed out, CSRF, nginx's 413 over 11 MiB) leave no row. The api logs one `Upload <outcome> [<reason>] in <n> ms` line per attempt, never the file name, Discord ID or IP.
+
+**Recent uploads:**
+
+```bash
+$Prod exec postgres psql -U discosticker -d discosticker -c "select occurred_at, discord_id, outcome, reason, original_bytes, sticker_public_id from upload_audit order by id desc limit 20"
+$Prod logs --since 24h api | grep -E 'Upload (accepted|rejected|failed)'
+```
+
+**Orphan check.** The api writes a sticker's object before committing its row and deletes the object if the commit fails, so a row always has its object. An orphan object (stored, with no row) can only be left if the api dies between the two steps. Orphans are unreachable, because `/s/` serves only stickers that have a row. Compare the bucket with the table:
+
+```bash
+$Prod run --rm --no-deps --entrypoint aws bucket-init s3 ls s3://stickers --endpoint-url http://seaweedfs:8333 | awk '{print $4}' | sort > /tmp/objects.txt
+$Prod exec -T postgres psql -U discosticker -d discosticker -At -c "select object_key from stickers" | sort > /tmp/rows.txt
+comm -23 /tmp/objects.txt /tmp/rows.txt   # orphan objects: in storage with no row (safe to delete)
+comm -13 /tmp/objects.txt /tmp/rows.txt   # rows without an object: must print nothing
+```
+
+Delete an orphan with `$Prod run --rm --no-deps --entrypoint aws bucket-init s3 rm s3://stickers/<key> --endpoint-url http://seaweedfs:8333`. A row without an object should never happen; if the second line prints anything, stop and investigate before deleting anything. An automatic sweep comes with ban-and-purge.
 
 ## Lockout recovery
 
