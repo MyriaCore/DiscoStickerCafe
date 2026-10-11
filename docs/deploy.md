@@ -319,7 +319,7 @@ if cut -d= -f1 secrets.env | grep -qx DISCORD_CLIENT_SECRET; then echo "DISCORD_
 fi
 ```
 
-`read -s` doesn't echo, and the value never enters shell history. Appending keeps the file's mode 600. Then clear the clipboard on Windows. If clipboard history is on, also clear it (Settings → System → Clipboard → Clear clipboard data):
+`read -s` doesn't echo, and the value never enters shell history. Appending keeps the file's mode 600. At the prompt, paste **once** (Ctrl+Shift+V or a single Ctrl+V, not also a right-click) and press Enter. Nothing shows, so a doubled paste goes unnoticed; the length check below catches it. Then clear the clipboard on Windows. If clipboard history is on, also clear it (Settings → System → Clipboard → Clear clipboard data):
 
 ```powershell
 Set-Clipboard -Value ' '
@@ -327,13 +327,16 @@ Set-Clipboard -Value ' '
 
 The secret is never written to a file on Windows. To replace it (for example after resetting it in the portal), delete its line with `sed -i '/^DISCORD_CLIENT_SECRET\b/d' secrets.env` (sed keeps the file's owner and mode) and run the step again.
 
-**Check** (names, owner and mode only, never values):
+**Check** (names, owner, mode and value lengths only, never values):
 
 ```bash
 stat -c '%U:%G %a' secrets.env                                                     # deploy:deploy 600
 diff <(cut -d= -f1 secrets.env) <(grep -Ev '^(#|$)' secrets.env.example | cut -d= -f1); echo $?   # 0 only
 git check-ignore -q secrets.env; echo $?                                           # 0
+awk -F= '{print $1, length($0)-length($1)-1}' secrets.env                          # value lengths
 ```
+
+Expected lengths: `POSTGRES_PASSWORD 64`, `S3_ACCESS_KEY 32`, `S3_SECRET_KEY 64` (hex from `openssl rand`), and `DISCORD_CLIENT_SECRET 32` (Discord's client secret). A Discord length of 64 means the secret was pasted twice. On 2026-10-11 a doubled paste was caught exactly this way. Delete the line and enter it again.
 
 Don't `cat` the file. `POSTGRES_PASSWORD` is applied only when the Postgres volume is first created; changing it later needs `ALTER ROLE` inside Postgres as well.
 

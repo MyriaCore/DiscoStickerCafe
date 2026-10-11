@@ -21,8 +21,8 @@ The gateway SHALL forward every request whose path starts with `/api/`, `/oauth2
 - **THEN** the response comes from the backend
 
 #### Scenario: Unhandled prefixed paths reach the backend
-- **WHEN** a client requests `GET /oauth2/x`, `GET /login/oauth2/x`, or `GET /s/x` from the gateway
-- **THEN** each response is the backend's 404 response (JSON), not the gateway's own 404 page
+- **WHEN** a client with no session requests `GET /oauth2/x`, `GET /login/oauth2/x`, and `GET /s/x` from the gateway
+- **THEN** the first two responses are the backend's 401 response (JSON), the third is the backend's 404 response (JSON), and none is the gateway's own 404 page
 
 ### Requirement: Forwarded request headers
 The gateway SHALL send `X-Forwarded-Proto`, `X-Forwarded-Host`, and `X-Forwarded-Port` describing the client-facing request on every proxied request. The backend SHALL use them when it builds absolute URLs.
@@ -87,7 +87,7 @@ In production, the gateway SHALL answer every HTTPS request for www.discosticker
 - **THEN** the gateway responds 301 with `Location: https://discosticker.cafe/x`
 
 ### Requirement: Security headers on every HTTPS response
-In production, every HTTPS response from the gateway SHALL carry `Strict-Transport-Security: max-age=300`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, and `X-Frame-Options: DENY`. This SHALL hold for static files, responses proxied from the backend, and error responses. `Strict-Transport-Security` SHALL NOT include `includeSubDomains` or `preload`.
+In production, every HTTPS response from the gateway SHALL carry `Strict-Transport-Security: max-age=300`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, and `X-Frame-Options: DENY`. `Strict-Transport-Security` SHALL NOT include `includeSubDomains` or `preload`. The gateway SHALL be the only source of these four headers: it SHALL NOT pass on copies sent by the backend, locally or in production.
 
 #### Scenario: Static page
 - **WHEN** a client requests `GET https://discosticker.cafe/`
@@ -100,3 +100,11 @@ In production, every HTTPS response from the gateway SHALL carry `Strict-Transpo
 #### Scenario: Error response
 - **WHEN** a client requests `GET https://discosticker.cafe/nope/`
 - **THEN** the response is 404 and carries all four headers
+
+#### Scenario: Each header exactly once on proxied responses
+- **WHEN** a client requests `GET https://discosticker.cafe/api/health`
+- **THEN** each of the four headers appears exactly once, and `Strict-Transport-Security` is exactly `max-age=300`
+
+#### Scenario: Backend copies not passed on locally
+- **WHEN** the local stack is running and a client requests `GET http://localhost:8080/api/health` from the gateway
+- **THEN** none of the four headers is present, even though the backend sends `X-Content-Type-Options` and `X-Frame-Options` itself
