@@ -214,10 +214,11 @@ Conventions for every task:
 
 ## 8. Production redeploy (all [user])
 
-- [ ] 8.1 [user] Push `feature/login`, then take GitHub's hash on Windows: `git ls-remote origin refs/heads/feature/login`.
+- [x] 8.1 [user] Push `feature/login`, then take GitHub's hash on Windows: `git ls-remote origin refs/heads/feature/login`.
   Verify: one line with a hash that equals `git rev-parse HEAD` on Windows for the pushed commit.
+  Notes (2026-10-11, reported by the user): pushed; `git ls-remote origin refs/heads/feature/login` and `git rev-parse HEAD` both print `d0be800d432aa2a4a5f2f388063622bba0c19d81`.
 
-- [ ] 8.2 [user] On the server:
+- [x] 8.2 [user] On the server:
   ```bash
   cd /srv/discosticker
   Prod='docker compose -f compose.yaml -f compose.prod.yaml --env-file secrets.env'
@@ -227,8 +228,9 @@ Conventions for every task:
   git rev-parse HEAD
   ```
   Verify: the last line equals the hash from 8.1. If not, stop.
+  Notes (2026-10-11, reported by the user): fetch created `origin/feature/login`, the switch set up tracking, the pull was already up to date, and `git rev-parse HEAD` printed `d0be800d432aa2a4a5f2f388063622bba0c19d81`, matching 8.1.
 
-- [ ] 8.3 [user] Add the production secret, before any `up` (design D15). In the Developer Portal, open the prod application's OAuth2 page, reset or reveal the secret and copy it, then on the server:
+- [x] 8.3 [user] Add the production secret, before any `up` (design D15). In the Developer Portal, open the prod application's OAuth2 page, reset or reveal the secret and copy it, then on the server:
   ```bash
   cd /srv/discosticker
   if cut -d= -f1 secrets.env | grep -qx DISCORD_CLIENT_SECRET; then echo "DISCORD_CLIENT_SECRET already set" >&2; else
@@ -238,8 +240,9 @@ Conventions for every task:
   ```
   Then, on Windows: `Set-Clipboard -Value ' '`. If clipboard history is on, clear it too (Settings → System → Clipboard → Clear).
   Verify (server): `stat -c '%U:%G %a' secrets.env` prints `deploy:deploy 600`. `diff <(cut -d= -f1 secrets.env) <(grep -Ev '^(#|$)' secrets.env.example | cut -d= -f1); echo $?` prints only `0`. `git check-ignore -q secrets.env; echo $?` prints `0`.
+  Notes (2026-10-11, reported by the user): the first entry measured 64 characters (Discord secrets are 32), most likely a doubled paste, which is invisible with `read -s`. The line was deleted, the secret reset in the portal and entered again. Final checks: `deploy:deploy 600`; the names diff prints `0`; lengths `POSTGRES_PASSWORD 64`, `S3_ACCESS_KEY 32`, `S3_SECRET_KEY 64`, `DISCORD_CLIENT_SECRET 32`. No value was printed. The runbook's check now includes the length line.
 
-- [ ] 8.4 [user] Build and start. The gateway rebuilds because `proxy_headers.conf` is in its image. Recreate the gateway because the branch changed:
+- [x] 8.4 [user] Build and start. The gateway rebuilds because `proxy_headers.conf` is in its image. Recreate the gateway because the branch changed:
   ```bash
   $Prod up --build -d --wait --wait-timeout 900; echo "exit=$?"
   $Prod up -d --force-recreate --no-deps --wait gateway
@@ -249,8 +252,9 @@ Conventions for every task:
   ```
   If the build runs out of memory, use the runbook's one-at-a-time fallback.
   Verify: `exit=0`; `discosticker.conf` is listed; `nginx-t=0`; gateway, api, postgres and seaweedfs are `(healthy)`; bucket-init is `Exited (0)`.
+  Notes (2026-10-11, reported by the user): api and gateway images rebuilt (about 59 s); `exit=0`; the gateway was recreated and `conf.d` lists `discosticker.conf`; `nginx-t=0`; api, gateway, postgres and seaweedfs `(healthy)`; bucket-init `Exited (0)`. Postgres and SeaweedFS stayed up throughout (Up 16 hours), so their volumes were untouched.
 
-- [ ] 8.5 [user] Smoke checks from Windows (PowerShell).
+- [x] 8.5 [user] Smoke checks from Windows (PowerShell).
   - The production header check (Conventions) prints `1` on all 15 lines.
   - Then the login redirect and cookie, each attribute checked separately (replace `<prod-client-id>`):
     ```powershell
@@ -266,13 +270,15 @@ Conventions for every task:
     foreach ($p in '/api/me','/oauth2/x','/login/oauth2/x','/s/x') { curl.exe -sS -o NUL -w "$p %{http_code} %{content_type}`n" "https://discosticker.cafe$p" }
     ```
   Verify: the header check prints `1` on all 15 lines. The next nine lines (four for the redirect, four cookie attributes, and the no-Domain/Max-Age/Expires check) all print `True`. The last four lines print `/api/me 401`, `/oauth2/x 401`, `/login/oauth2/x 401` and `/s/x 404`, each with `application/json`.
+  Notes (2026-10-11 08:27 local, run by Claude from Windows PowerShell 5.1): the header check printed `1` on all 15 lines, including `/api/health`, now served through Spring Security, where its own HSTS would otherwise have appeared. So `proxy_hide_header` works in production and HSTS stays exactly `max-age=300`. The authorize redirect, `redirect_uri=https://discosticker.cafe/login/oauth2/code/discord`, `scope=identify`, `client_id=1558633777062875269` and `code_challenge_method=S256` all printed True. The `__Host-SESSION` cookie has Path=/, Secure, HttpOnly and SameSite=Lax, with no Domain, Max-Age or Expires. `/api/me`, `/oauth2/x` and `/login/oauth2/x` return 401 and `/s/x` returns 404, all `application/json`. Health is UP over IPv4 and IPv6, http still redirects 301 to https, and `/` returns 200.
 
-- [ ] 8.6 [user] Sign in end to end in production:
+- [x] 8.6 [user] Sign in end to end in production:
   1. Open https://www.discosticker.cafe, choose sign in, and approve. You end on https://discosticker.cafe signed in, with your display name shown.
   2. Sign out.
   3. On the server, ban yourself: `$Prod exec postgres psql -U discosticker -d discosticker -c "update users set banned_at = now() where discord_id = <your-discord-id>"`. Sign in again, and see the "banned" message.
   4. Unban (`... set banned_at = null ...`), then sign in once more.
   Verify (server): `$Prod exec postgres psql -U discosticker -d discosticker -c "select outcome, reason, occurred_at from login_audit order by id desc limit 5"` shows, newest first, `accepted`, `rejected | banned`, `accepted`. `$Prod logs --since 30m api | grep -ciE 'access_token|client_secret'` prints `0`.
+  Notes (2026-10-11, reported by the user with screenshots): signed in on production and landed on https://discosticker.cafe showing "Signed in as myria" (an emoji in the display name rendered correctly). After a hand ban, sign-in returned to `/?login=banned` with the fixed message "This Discord account can't sign in." and the sign-in link. After unbanning, sign-in worked again. `login_audit`, newest first: `accepted` 13:06:18, `rejected | banned` 13:04:50, `accepted` 13:03:50 (UTC). `$Prod logs --since 30m api | grep -ciE 'access_token|client_secret'` printed `0`.
 
 ## Workflow follow-up
 
