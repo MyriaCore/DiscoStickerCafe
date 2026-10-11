@@ -78,7 +78,7 @@ spring.security.oauth2.client:
   - `{baseUrl}` comes from the request's scheme, host and port as RemoteIpValve rewrote them. That yields `http://localhost:8080` locally and `https://discosticker.cafe` in production (default port dropped).
 - **Discord's endpoints and auth:**
   - Discord accepts HTTP Basic client authentication at the token endpoint. The user endpoint is versioned (v10), because unversioned routes go to v6.
-  - Discord documents no PKCE. Spring adds PKCE only for public clients, so the flow is a confidential-client authorization-code flow protected by `state`.
+  - Discord documents no PKCE. Contrary to what exploration concluded, Spring Security 7.1 sends PKCE (`code_challenge`, S256) for this confidential client too, as the local stack showed in task 5.5. So the flow is protected by both `state` and PKCE, and the first real login (6.2) confirms that Discord accepts it.
 - `${DISCORD_CLIENT_ID}` and `${DISCORD_CLIENT_SECRET}` have no defaults, so the api fails at startup if either is missing.
 - Tests set both to random per-run values in `TestcontainersConfiguration`, following its existing credential pattern.
 
@@ -258,6 +258,7 @@ spring.security.oauth2.client:
 - [Chrome later accepts `__Host-` on localhost, or the dev and prod cookie names drift further] → Only the name differs, through one env line in `compose.prod.yaml`. Every other attribute is identical and tested.
 - [Pre-login session flood exhausts api memory, with no `limit_req`] → 10-minute expiry and small sessions. The api restarts `unless-stopped` if it ever runs out of memory. Rate limiting arrives with upload rate limits next weekend.
 - [The maintainer browses the local stack at `127.0.0.1:8080`] → The redirect URI would then be `http://127.0.0.1:8080/...`, which the dev app doesn't list, and the cookie host differs. The runbook and 6.2 say to use `http://localhost:8080`.
+- [Discord rejects or mishandles PKCE parameters, which it doesn't document] → The real login in 6.2 shows it. If Discord rejects them, turn PKCE off for this registration (`ClientRegistration.ClientSettings` with `requireProofKey(false)`, or the authorization-request customizer) and record the decision.
 - [Spring's authorize URL leaves `:` and `/` unencoded in `redirect_uri`, or encodes them] → The smoke checks URL-decode the Location before matching, so they pass either way.
 - [The production `secrets.env` lacks the secret at redeploy] → Compose fails at interpolation and names `DISCORD_CLIENT_SECRET` without touching running containers. 8.3 runs before 8.4.
 - [The secret is pasted with a trailing newline or space] → `read -r` with `IFS=` keeps it as typed. A wrong value shows up as a failed login with a WARN `invalid_token_response`, and 8.3 can be repeated after deleting the line.

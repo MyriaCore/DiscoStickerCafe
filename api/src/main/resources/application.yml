@@ -1,10 +1,47 @@
 spring:
   application:
     name: api
+  security:
+    oauth2:
+      client:
+        registration:
+          discord:
+            provider: discord
+            # Public; set per environment by compose. The secret comes from secrets.env only.
+            client-id: ${DISCORD_CLIENT_ID}
+            client-secret: ${DISCORD_CLIENT_SECRET}
+            client-authentication-method: client_secret_basic
+            authorization-grant-type: authorization_code
+            # Required for a custom provider. /login/ is literal: {action} could be overridden
+            # by an ?action= query parameter. {baseUrl} is the client-facing origin.
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            scope: identify
+        provider:
+          discord:
+            authorization-uri: https://discord.com/oauth2/authorize
+            token-uri: https://discord.com/api/oauth2/token
+            # Versioned: an unversioned route goes to API v6.
+            user-info-uri: https://discord.com/api/v10/users/@me
+            user-name-attribute: id
 
 server:
   # Trust X-Forwarded-* from nginx (Tomcat's RemoteIpValve accepts private-range proxies only).
   forward-headers-strategy: native
+  servlet:
+    session:
+      # Pre-login sessions (they hold only the OAuth state). Signing in raises it to 8 hours.
+      timeout: 10m
+      # Never put the session ID in a URL.
+      tracking-modes: cookie
+      cookie:
+        # compose.prod.yaml renames it __Host-SESSION (needs HTTPS). Secure follows the
+        # forwarded scheme. Lax, not Strict: Discord's redirect back is a cross-site navigation.
+        name: SESSION
+        http-only: true
+        same-site: lax
+  tomcat:
+    # Location: / rather than an absolute URL built from the request's host.
+    use-relative-redirects: true
 
 management:
   endpoints:

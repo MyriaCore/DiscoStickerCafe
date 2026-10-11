@@ -23,24 +23,25 @@ Conventions for every task:
 
 ## 1. Gateway: nginx is the only source of the security headers
 
-- [ ] 1.1 Write the header checks first (design D1).
+- [x] 1.1 Write the header checks first (design D1).
   - Replace the "Security headers" smoke check in `docs/deploy.md` (the `Select-String` loop that lists the four header lines) with the production header check above, which counts each header and requires HSTS exactly `max-age=300`.
   - Run the local header check against the running local stack.
   - Neither check can fail yet: the api sends no security headers before Spring Security. The local check is the one that would catch the api's headers once 5.4 adds Spring Security, and 5.5 adds a negative control proving the api does send them.
   Verify: the local header check prints `0`. The production header check (PowerShell, run now as a baseline) prints `1` on all 15 lines. `Select-String -Path docs\deploy.md -SimpleMatch -Pattern 'hsts = max-age=300'` prints one line.
 
-- [ ] 1.2 Add `proxy_hide_header` for `Strict-Transport-Security`, `X-Content-Type-Options`, `Referrer-Policy` and `X-Frame-Options` to `gateway/proxy_headers.conf`, with a comment saying nginx is the only source of these headers. The file is included in all four api locations, and it's built into the gateway image, so the stack must be rebuilt.
+- [x] 1.2 Add `proxy_hide_header` for `Strict-Transport-Security`, `X-Content-Type-Options`, `Referrer-Policy` and `X-Frame-Options` to `gateway/proxy_headers.conf`, with a comment saying nginx is the only source of these headers. The file is included in all four api locations, and it's built into the gateway image, so the stack must be rebuilt.
   Verify: `docker compose --env-file secrets.env up --build -d --wait --wait-timeout 300` exits 0. `MSYS_NO_PATHCONV=1 docker compose --env-file secrets.env exec gateway nginx -T 2>/dev/null | grep -cE '^\s*proxy_hide_header (Strict-Transport-Security|X-Content-Type-Options|Referrer-Policy|X-Frame-Options);'` prints `4`. `curl -fsS http://localhost:8080/api/health` prints `"status":"UP"`. The local header check prints `0`.
 
 ## 2. Discord applications and the client secret
 
-- [ ] 2.1 [user] In the Discord Developer Portal (discord.com/developers/applications), create two applications. In each, open OAuth2, add exactly one redirect, and leave "Public Client" off:
+- [x] 2.1 [user] In the Discord Developer Portal (discord.com/developers/applications), create two applications. In each, open OAuth2, add exactly one redirect, and leave "Public Client" off:
   - **DiscoSticker (dev)**, redirect: http://localhost:8080/login/oauth2/code/discord
   - **DiscoSticker.cafe**, redirect: https://discosticker.cafe/login/oauth2/code/discord
   Type each URI character for character, with no trailing slash. Don't add a URI for www.discosticker.cafe: the gateway redirects www to the apex before any login starts. Send Claude both client IDs (they're public). Keep both secrets in the portal for now; 2.3 and 8.3 enter them.
   Verify: each application's OAuth2 page lists exactly one redirect, matching the line above, and "Public Client" is off. Claude has both client IDs.
+  Notes (2026-10-11, reported by the user): both applications exist, each with exactly its redirect URI registered. Client IDs: dev `1558633255404699710`, prod `1558633777062875269`.
 
-- [ ] 2.2 Wire the names (design D3):
+- [x] 2.2 Wire the names (design D3):
   - `secrets.env.example` gains `DISCORD_CLIENT_SECRET=change-me-discord-client-secret`.
   - The `api` service in `compose.yaml` gains `DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:?set DISCORD_CLIENT_SECRET in secrets.env}` and `DISCORD_CLIENT_ID: "<dev-client-id>"`.
   - The `api` service in `compose.prod.yaml` gains `DISCORD_CLIENT_ID: "<prod-client-id>"` and `SERVER_SERVLET_SESSION_COOKIE_NAME: __Host-SESSION`.
@@ -51,7 +52,7 @@ Conventions for every task:
   - `docker compose --env-file secrets.env.example config --format json | python -c "import json,sys; s=json.load(sys.stdin)['services']; print(sorted(k for k,v in s.items() if 'DISCORD_CLIENT_SECRET' in (v.get('environment') or {})))"` prints `['api']`.
   - `docker compose -f compose.yaml -f compose.prod.yaml --env-file secrets.env.example config --format json | python -c "import json,sys; e=json.load(sys.stdin)['services']['api']['environment']; print(e['DISCORD_CLIENT_ID'], e['SERVER_SERVLET_SESSION_COOKIE_NAME'])"` prints `<prod-client-id> __Host-SESSION`.
 
-- [ ] 2.3 [user] Add the dev application's secret to the local `secrets.env` without echoing it. Run in PowerShell from the repo root, after 2.2 has landed:
+- [x] 2.3 [user] Add the dev application's secret to the local `secrets.env` without echoing it. Run in PowerShell from the repo root, after 2.2 has landed:
   ```powershell
   $f = Join-Path (Get-Location) 'secrets.env'
   if (Select-String -Path $f -Pattern '^DISCORD_CLIENT_SECRET=' -Quiet) { Write-Error 'DISCORD_CLIENT_SECRET already set' } else {
@@ -69,7 +70,7 @@ Conventions for every task:
 
 ## 3. Database schema
 
-- [ ] 3.1 Write `SchemaIT` first (design D11). It checks that:
+- [x] 3.1 Write `SchemaIT` first (design D11). It checks that:
   - the `users` and `login_audit` tables exist;
   - inserting a duplicate `users.discord_id` fails;
   - `login_audit` rejects an outcome other than `accepted` or `rejected`, a reason other than `banned` or `too_new`, an accepted row with a reason, and a rejected row without one;
@@ -78,12 +79,12 @@ Conventions for every task:
   - Flyway reports nothing pending.
   Verify: `cd api && ./mvnw -B verify -Dit.test=SchemaIT` fails on the missing tables.
 
-- [ ] 3.2 Add `api/src/main/resources/db/migration/V1__create_users.sql` and `V2__create_login_audit.sql` as in design D11, and remove `db/migration/.gitkeep`.
+- [x] 3.2 Add `api/src/main/resources/db/migration/V1__create_users.sql` and `V2__create_login_audit.sql` as in design D11, and remove `db/migration/.gitkeep`.
   Verify: `cd api && ./mvnw -B verify` passes, including `SchemaIT` and `FlywayMigrationIT`.
 
 ## 4. Login rules (unit)
 
-- [ ] 4.1 Write `AccountAgeTest` and `LoginPolicyTest` first (design D4).
+- [x] 4.1 Write `AccountAgeTest` and `LoginPolicyTest` first (design D4).
   - `AccountAgeTest`:
     - a known Discord ID maps to its creation instant through `(id >> 22) + 1420070400000`;
     - with a fixed `Clock`, an account created 7 days minus 1 ms ago is too new;
@@ -96,12 +97,12 @@ Conventions for every task:
     - neither gives accepted.
   Verify: `cd api && ./mvnw -B test -Dtest='AccountAgeTest,LoginPolicyTest'` fails (the classes don't exist yet).
 
-- [ ] 4.2 Implement `AccountAge` and `LoginPolicy` with an injected `Clock` bean.
+- [x] 4.2 Implement `AccountAge` and `LoginPolicy` with an injected `Clock` bean.
   Verify: `cd api && ./mvnw -B test -Dtest='AccountAgeTest,LoginPolicyTest'` passes.
 
 ## 5. Spring Security, Discord login and login audit
 
-- [ ] 5.1 Add the test support (design D14), with no new test dependencies:
+- [x] 5.1 Add the test support (design D14), with no new test dependencies:
   - `TestcontainersConfiguration` registers a random `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET` per run.
   - `FakeDiscord`: a JDK `HttpServer` with a token endpoint and a user endpoint. The token endpoint records each request and asserts Basic auth, `grant_type=authorization_code` and the `redirect_uri`. The user endpoint returns a per-test user built from a chosen creation time.
   - `FakeDiscord` registers `token-uri` and `user-info-uri` through a `DynamicPropertyRegistrar`.
@@ -109,7 +110,7 @@ Conventions for every task:
   - A `LoginFlow` helper: a JDK `HttpClient` with redirects off and a cookie jar. It starts `/oauth2/authorization/discord`, reads `state`, and calls the callback.
   Verify: `cd api && ./mvnw -B verify` passes; the existing tests are unchanged.
 
-- [ ] 5.2 Write `ApiSecurityIT` first (`specs/discord-login`: signed-out API requests, permitted paths, current user, CSRF, sign-out). It covers:
+- [x] 5.2 Write `ApiSecurityIT` first (`specs/discord-login`: signed-out API requests, permitted paths, current user, CSRF, sign-out). It covers:
   - Signed-out `GET /api/me`: 401 with `application/json`, no `Location`, and no session cookie set.
   - Signed-out `GET /api/health`: 200 with `"status":"UP"`.
   - Signed-out `GET /oauth2/x` and `GET /login/oauth2/x`: 401 JSON. `GET /s/x`: 404 JSON.
@@ -121,7 +122,7 @@ Conventions for every task:
     - `POST /api/logout` with the token returns 204, and `/api/me` with the old cookies then returns 401.
   Verify: `cd api && ./mvnw -B verify -Dit.test=ApiSecurityIT` fails.
 
-- [ ] 5.3 Write `DiscordLoginIT` first (`specs/discord-login`: sign-in redirect, state, ban, age, rejected sessions, fixed codes, accepted session, cookie, timeouts, account record, token retention, audit, unidentified failures). It covers:
+- [x] 5.3 Write `DiscordLoginIT` first (`specs/discord-login`: sign-in redirect, state, ban, age, rejected sessions, fixed codes, accepted session, cookie, timeouts, account record, token retention, audit, unidentified failures). It covers:
   - **Authorization redirect:**
     - The Location goes to `https://discord.com/oauth2/authorize`, and its `client_id` is the test client ID.
     - `scope` is exactly `identify`, and `state` is not empty.
@@ -151,24 +152,24 @@ Conventions for every task:
   - **Every redirect:** no `Location` contains `jsessionid`, and every failure `Location` is one of the three fixed values.
   Verify: `cd api && ./mvnw -B verify -Dit.test=DiscordLoginIT` fails.
 
-- [ ] 5.4 Implement (design D2, D4–D12):
+- [x] 5.4 Implement (design D2, D4–D12):
   - In `api/pom.xml`, add `spring-boot-starter-security-oauth2-client`, plus `spring-boot-starter-security-oauth2-client-test` in test scope.
   - In `application.yml`: the registration and provider (D2), `server.servlet.session.timeout: 10m`, the session cookie settings (D7) and `tracking-modes: cookie`.
   - `SecurityConfig`: the authorization rules and 401 JSON entry point (D8), `NullRequestCache`, `csrf.spa()`, logout at `/api/logout` returning 204, `oauth2Login` with the user service wired explicitly, the no-op authorized-client repository, and the success and failure handlers.
   - Classes: `DiscordOAuth2UserService`, `LoginRejectedException`, `LoginAuditWriter` and `UserAccounts` (both on `JdbcClient`), the success handler (upsert, audit, 8 h idle, redirect `/`), the failure handler (audit or WARN, invalidate the session, redirect with a fixed code), and `MeController`.
   Verify: `cd api && ./mvnw -B verify` passes, including `HealthEndpointIT`, `FlywayMigrationIT`, `SeaweedS3IT`, `SchemaIT`, `ApiSecurityIT` and `DiscordLoginIT`.
 
-- [ ] 5.5 Check through the running local stack. This needs 2.3 done.
+- [x] 5.5 Check through the running local stack. This needs 2.3 done.
   Verify:
   - `docker compose --env-file secrets.env up --build -d --wait --wait-timeout 300` exits 0, and `curl -fsS http://localhost:8080/api/health` prints `"status":"UP"`.
   - The local header check prints `0`.
-  - Negative control, proving the api itself sends two of the headers: `docker compose --env-file secrets.env exec api wget -S -O /dev/null http://localhost:8080/api/health 2>&1 | grep -ciE '^\s*x-(frame-options|content-type-options):'` prints `2`.
+  - Negative control, proving the api itself sends two of the headers: `MSYS_NO_PATHCONV=1 docker compose --env-file secrets.env exec api wget -S -O /dev/null http://localhost:8080/api/health 2>&1 | grep -ciE '^\s*x-(frame-options|content-type-options):'` prints `2`.
   - `curl -sS -o /dev/null -w '%{redirect_url}\n' http://localhost:8080/oauth2/authorization/discord | sed 's/%3A/:/gI; s/%2F/\//gI'` prints a URL starting `https://discord.com/oauth2/authorize?` that contains `redirect_uri=http://localhost:8080/login/oauth2/code/discord`, `scope=identify` and `client_id=<dev-client-id>`.
-  - `for p in /api/me /oauth2/x /login/oauth2/x /s/x; do curl -sS -o /dev/null -w "$p %{http_code} %{content_type}\n" "http://localhost:8080$p"; done` prints 401, 401, 401 and 404, each with `application/json`.
+  - `for p in /api/me /oauth2/x /login/oauth2/x /s/x; do curl -sS -o /dev/null -w '%{url} %{http_code} %{content_type}\n' "http://localhost:8080$p"; done` prints 401, 401, 401 and 404, each with `application/json`. (The format string must not start with `/`: Git Bash would rewrite it as a Windows path, and `MSYS_NO_PATHCONV=1` would break `-o /dev/null` instead.)
 
 ## 6. Frontend
 
-- [ ] 6.1 Implement `frontend/lib/session.ts` and make `frontend/app/page.tsx` a client page (design D13):
+- [x] 6.1 Implement `frontend/lib/session.ts` and make `frontend/app/page.tsx` a client page (design D13):
   - `getMe()`
   - `signOut()`, which POSTs `/api/logout` with `X-XSRF-TOKEN` read from the `XSRF-TOKEN` cookie
   - `loginMessage(code)`, a fixed map for `banned`, `too_new` and `error`, with a generic default
@@ -177,17 +178,18 @@ Conventions for every task:
   - There is no frontend test runner; the mapping is checked in review.
   Verify: `cd frontend && npm ci && npm run typecheck && npm run build` passes. `grep -rnE 'dangerouslySetInnerHTML|innerHTML|outerHTML|document\.write' frontend/app frontend/lib` prints nothing. `grep -rnE 'location\.search|URLSearchParams|useSearchParams' frontend/app frontend/lib` prints exactly one line, and review confirms that its value reaches the page only through `loginMessage()`, whose default branch returns the generic text.
 
-- [ ] 6.2 [user] Sign in end to end on the local stack, in a browser at http://localhost:8080 (not 127.0.0.1):
+- [x] 6.2 [user] Sign in end to end on the local stack, in a browser at http://localhost:8080 (not 127.0.0.1):
   1. Sign in with the dev application. Your display name shows. Reload, and you're still signed in.
   2. Sign out; the sign-in link shows.
   3. Open `http://localhost:8080/?login=%3Cscript%3Ealert(1)%3C/script%3E`: the generic failure message shows, with no alert and no script text.
   4. Ban yourself (`docker compose --env-file secrets.env exec postgres psql -U discosticker -d discosticker -c "update users set banned_at = now() where discord_id = <your-discord-id>"`), sign in again, and see the "banned" message. Then unban (`... set banned_at = null ...`).
   5. Sign in, run `docker compose --env-file secrets.env restart api`, reload, and you're signed out.
   Verify (PowerShell): `docker compose --env-file secrets.env exec postgres psql -U discosticker -d discosticker -c "select outcome, reason, occurred_at from login_audit order by id"` shows `accepted` rows and one `rejected | banned` row, and every step above behaved as described.
+  Notes (2026-10-11, reported by the user): passed locally; every step behaved as described, and `login_audit` shows the expected rows. This is also the first real Discord login, so Discord accepts Spring Security 7.1's PKCE parameters (design risk on PKCE: resolved, no fallback needed) and the dev redirect URI is registered exactly.
 
 ## 7. Runbook and rules
 
-- [ ] 7.1 Update `docs/deploy.md`:
+- [x] 7.1 Update `docs/deploy.md`:
   - **Create secrets.env:** a step for third-party secrets: `DISCORD_CLIENT_SECRET` copied from the prod application's OAuth2 page, entered with `IFS= read -rs` on the server, then the Windows clipboard cleared with `Set-Clipboard -Value ' '` (and clipboard history if it's on). It is never written to a file on Windows.
   - **Redeploy:**
     - Deploying from a feature branch takes the hash with `git ls-remote origin refs/heads/<branch>`.
@@ -207,7 +209,7 @@ Conventions for every task:
   - `Get-ChildItem -Recurse -File docs\deploy.md,openspec\changes\add-discord-login | Select-String -Pattern '\]\([^)]*(www\.discosticker|/login/oauth2/code/)|<https?://(www\.discosticker|[^>]*/login/oauth2/code/)'`
   - `Select-String -Path docs\deploy.md -SimpleMatch -Pattern 'read -rs','DISCORD_CLIENT_SECRET','Set-Clipboard','git ls-remote origin refs/heads/','banned_at','restart api','hsts = max-age=300','__Host-SESSION','http://localhost:8080'` prints at least one line for each pattern.
 
-- [ ] 7.2 Apply the rule wording to `CLAUDE.md` and `openspec/config.yaml` ("before an authenticated session is created"). **Needs approval:** do this only after the maintainer confirms PM approval, and use the exact wording the maintainer provides; design.md's "Proposed rule wording" is only a draft. Until then, leave this task unchecked. Nothing else depends on it.
+- [x] 7.2 Apply the rule wording to `CLAUDE.md` and `openspec/config.yaml` ("before an authenticated session is created"). **Needs approval:** do this only after the maintainer confirms PM approval, and use the exact wording the maintainer provides; design.md's "Proposed rule wording" is only a draft. Until then, leave this task unchecked. Nothing else depends on it.
   Verify: `Select-String -Path CLAUDE.md,openspec\config.yaml -SimpleMatch -Pattern 'before a session is created'` prints nothing. `Select-String -Path CLAUDE.md,openspec\config.yaml -SimpleMatch -Pattern 'before an authenticated session is created'` prints one line from each file (or the approved wording's equivalent phrase).
 
 ## 8. Production redeploy (all [user])
@@ -229,7 +231,7 @@ Conventions for every task:
 - [ ] 8.3 [user] Add the production secret, before any `up` (design D15). In the Developer Portal, open the prod application's OAuth2 page, reset or reveal the secret and copy it, then on the server:
   ```bash
   cd /srv/discosticker
-  if grep -q '^DISCORD_CLIENT_SECRET=' secrets.env; then echo "DISCORD_CLIENT_SECRET already set" >&2; else
+  if cut -d= -f1 secrets.env | grep -qx DISCORD_CLIENT_SECRET; then echo "DISCORD_CLIENT_SECRET already set" >&2; else
     IFS= read -rs -p 'DISCORD_CLIENT_SECRET (prod app): ' v; echo
     printf 'DISCORD_CLIENT_SECRET=%s\n' "$v" >> secrets.env; unset v
   fi

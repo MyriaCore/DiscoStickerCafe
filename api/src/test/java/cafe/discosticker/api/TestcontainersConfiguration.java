@@ -20,6 +20,11 @@ public class TestcontainersConfiguration {
 
 	static final int S3_PORT = 8333;
 
+	// Discord client credentials, generated per run so none appears in source.
+	public static final String DISCORD_CLIENT_ID = randomHex(8);
+
+	public static final String DISCORD_CLIENT_SECRET = randomHex(16);
+
 	@Bean
 	@ServiceConnection
 	PostgreSQLContainer postgres() {
@@ -49,6 +54,14 @@ public class TestcontainersConfiguration {
 			registry.add("app.s3.secret-key", () -> seaweedfs.getEnvMap().get("AWS_SECRET_ACCESS_KEY"));
 			registry.add("app.s3.bucket", () -> "stickers");
 			registry.add("app.s3.path-style-access", () -> "true");
+		};
+	}
+
+	@Bean
+	DynamicPropertyRegistrar discordClientProperties() {
+		return registry -> {
+			registry.add("DISCORD_CLIENT_ID", () -> DISCORD_CLIENT_ID);
+			registry.add("DISCORD_CLIENT_SECRET", () -> DISCORD_CLIENT_SECRET);
 		};
 	}
 

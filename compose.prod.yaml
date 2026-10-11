@@ -15,6 +15,11 @@ services:
 
   api:
     restart: unless-stopped
+    environment:
+      # The production Discord application (public client ID; the secret stays in secrets.env).
+      DISCORD_CLIENT_ID: "1558633777062875269"
+      # __Host- needs HTTPS (Chrome rejects it on http://localhost), so production only.
+      SERVER_SERVLET_SESSION_COOKIE_NAME: __Host-SESSION
 
   gateway:
     restart: unless-stopped

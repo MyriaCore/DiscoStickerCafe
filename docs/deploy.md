@@ -288,7 +288,9 @@ After the PR merges, switch to `master` (see "Redeploy").
 
 ### Create secrets.env
 
-Generate the values on the server, without printing them. This only creates the file if it doesn't exist yet. The names must match `secrets.env.example`; if a later change adds a secret, add a line here too.
+The names must match `secrets.env.example`. Values we can generate are generated on the server. Values a third party issues (the Discord client secret) are typed in on the server without echo. Neither kind is ever printed. If a later change adds a secret, add a line to the matching step.
+
+**Generated values.** This only creates the file if it doesn't exist yet:
 
 ```bash
 cd /srv/discosticker
@@ -305,12 +307,35 @@ else
     } > secrets.env
   )
 fi
+```
+
+**Third-party secrets.** `DISCORD_CLIENT_SECRET` comes from the production Discord application (DiscoSticker.cafe). In the Discord Developer Portal, open the application's OAuth2 page, then reset or reveal the client secret and copy it. Never use the dev application's secret here. On the server:
+
+```bash
+cd /srv/discosticker
+if cut -d= -f1 secrets.env | grep -qx DISCORD_CLIENT_SECRET; then echo "DISCORD_CLIENT_SECRET already set" >&2; else
+  IFS= read -rs -p 'DISCORD_CLIENT_SECRET (prod app): ' v; echo
+  printf 'DISCORD_CLIENT_SECRET=%s\n' "$v" >> secrets.env; unset v
+fi
+```
+
+`read -s` doesn't echo, and the value never enters shell history. Appending keeps the file's mode 600. Then clear the clipboard on Windows. If clipboard history is on, also clear it (Settings → System → Clipboard → Clear clipboard data):
+
+```powershell
+Set-Clipboard -Value ' '
+```
+
+The secret is never written to a file on Windows. To replace it (for example after resetting it in the portal), delete its line with `sed -i '/^DISCORD_CLIENT_SECRET\b/d' secrets.env` (sed keeps the file's owner and mode) and run the step again.
+
+**Check** (names, owner and mode only, never values):
+
+```bash
 stat -c '%U:%G %a' secrets.env                                                     # deploy:deploy 600
 diff <(cut -d= -f1 secrets.env) <(grep -Ev '^(#|$)' secrets.env.example | cut -d= -f1); echo $?   # 0 only
 git check-ignore -q secrets.env; echo $?                                           # 0
 ```
 
-The checks print names, owner and mode, never values. Don't `cat` the file. `POSTGRES_PASSWORD` is applied only when the Postgres volume is first created; changing it later needs `ALTER ROLE` inside Postgres as well.
+Don't `cat` the file. `POSTGRES_PASSWORD` is applied only when the Postgres volume is first created; changing it later needs `ALTER ROLE` inside Postgres as well.
 
 ### Build and start
 
@@ -360,14 +385,33 @@ curl.exe -k -sS -o NUL https://207.148.19.168/; "exit=$LASTEXITCODE"
 curl.exe -4 -fsS https://discosticker.cafe/api/health
 curl.exe -6 -fsS https://discosticker.cafe/api/health
 
-# api prefixes: 404 application/json each
-foreach ($p in '/oauth2/x','/login/oauth2/x','/s/x') { curl.exe -sS -o NUL -w "$p %{http_code} %{content_type}\n" "https://discosticker.cafe$p" }
+# api prefixes, signed out: /api/me, /oauth2/x and /login/oauth2/x 401, /s/x 404, each application/json
+foreach ($p in '/api/me','/oauth2/x','/login/oauth2/x','/s/x') { curl.exe -sS -o NUL -w "$p %{http_code} %{content_type}\n" "https://discosticker.cafe$p" }
+
+# Sign-in redirect and session cookie: all nine lines True. The redirect goes to Discord with the
+# production client ID, identify scope and redirect URI; the cookie is __Host-SESSION with each
+# attribute checked separately.
+$r = curl.exe -sS -D - -o NUL https://discosticker.cafe/oauth2/authorization/discord | ForEach-Object { $_.TrimEnd() }
+$loc = [uri]::UnescapeDataString(($r | Select-String -Pattern '^location: (.+)$').Matches[0].Groups[1].Value)
+'authorize      ' + ($loc -match '^https://discord\.com/oauth2/authorize\?')
+'redirect_uri   ' + ($loc -match '[?&]redirect_uri=https://discosticker\.cafe/login/oauth2/code/discord(&|$)')
+'scope          ' + ($loc -match '[?&]scope=identify(&|$)')
+'client_id      ' + ($loc -match '[?&]client_id=1558633777062875269(&|$)')
+$c = ($r | Select-String -Pattern '^set-cookie: __Host-SESSION=').Line
+foreach ($a in 'Path=/','Secure','HttpOnly','SameSite=Lax') { '{0,-15}{1}' -f $a, ($c -match (';\s*' + [regex]::Escape($a) + '(;|$)')) }
+'no Domain/Max-Age/Expires ' + (($null -ne $c) -and ($c -notmatch ';\s*(Domain|Max-Age|Expires)='))
 
 # Static root and unknown path: / 200, /nope/ 404
 foreach ($p in '/','/nope/') { curl.exe -sS -o NUL -w "$p %{http_code}\n" "https://discosticker.cafe$p" }
 
-# Security headers: four lines per path (HSTS exactly max-age=300)
-foreach ($p in '/','/api/health','/nope/') { "== $p"; curl.exe -sI "https://discosticker.cafe$p" | Select-String -Pattern '^(strict-transport-security|x-content-type-options|referrer-policy|x-frame-options):' }
+# Security headers: 1 on all 15 lines. nginx is their only source, so each header appears
+# exactly once per path, including /api/health (proxied), and HSTS is exactly max-age=300.
+$names = 'strict-transport-security','x-content-type-options','referrer-policy','x-frame-options'
+foreach ($p in '/','/api/health','/nope/') {
+  $h = curl.exe -sI "https://discosticker.cafe$p" | ForEach-Object { $_.TrimEnd() }
+  foreach ($n in $names) { '{0,-12} {1,-26} {2}' -f $p, $n, @($h | Select-String -Pattern "^${n}:").Count }
+  '{0,-12} {1,-26} {2}' -f $p, 'hsts = max-age=300', @($h | Select-String -Pattern '^strict-transport-security: max-age=300$').Count
+}
 ```
 
 Then run the port probe from "Firewall", and check on the server:
@@ -419,24 +463,37 @@ It must print `UP`.
 
 ## Redeploy
 
-After a merge to `master`, first take GitHub's `master` hash on Windows. That's the commit the server must end up on:
+A change deploys from its feature branch before the PR merges. **After the merge, switch the server to `master`** with the same steps: this is routine, not a task in any change. Below, `<branch>` is the feature branch (for example `feature/login`) or `master`.
+
+First push the branch, then take GitHub's hash for it on Windows. That's the commit the server must end up on:
 
 ```powershell
-git ls-remote origin refs/heads/master
+git ls-remote origin refs/heads/<branch>
 ```
 
-Then on the server:
+On the server, check out that commit:
 
 ```bash
 cd /srv/discosticker
 Prod='docker compose -f compose.yaml -f compose.prod.yaml --env-file secrets.env'
 git fetch origin
-git switch master
+git switch <branch>
 git pull --ff-only
 git rev-parse HEAD              # must equal the hash from ls-remote; if not, stop
-$Prod up --build -d --wait --wait-timeout 900; echo "exit=$?"
-$Prod exec gateway ls /etc/nginx/conf.d          # must list discosticker.conf
 ```
+
+**If the change adds a secret** (a new name in `secrets.env.example`), add it to `secrets.env` now, before `up`: a generated one with `openssl rand`, a third-party one as in "Create secrets.env". Then run the name check there. Every secret is required, so `up` stops at a missing one without touching the running containers.
+
+Then build, start and recreate the gateway (the branch changed, see below):
+
+```bash
+$Prod up --build -d --wait --wait-timeout 900; echo "exit=$?"
+$Prod up -d --force-recreate --no-deps --wait gateway
+$Prod exec gateway ls /etc/nginx/conf.d          # must list discosticker.conf
+$Prod exec gateway nginx -t -q; echo "nginx-t=$?"
+```
+
+Then run "Smoke checks".
 
 **Always compare against GitHub's hash, taken from Windows.** Never compare against the server's own `origin/master`: it's only as fresh as the server's last fetch. On 2026-10-10, a pull ran before GitHub's `master` had the deploy merge. `git switch master` then checked out the pre-deploy master and deleted `compose.prod.yaml` and `gateway/prod/` from the checkout. `HEAD == origin/master` still passed, because both were stale.
 
@@ -484,6 +541,41 @@ $Prod up -d --force-recreate --no-deps --wait gateway
 ```
 
 Then, once the fix is merged, `git fetch origin`, `git switch master` and `git pull --ff-only`, check the hash against GitHub's, and recreate the gateway again. Don't roll back to a commit from before the deploy merge: it has no `compose.prod.yaml` or `gateway/prod/`.
+
+## Sign-in and bans
+
+Sign-in uses two Discord applications, each with exactly one redirect URI registered:
+- **DiscoSticker (dev)**, for the local stack: http://localhost:8080/login/oauth2/code/discord
+- **DiscoSticker.cafe**, for production: https://discosticker.cafe/login/oauth2/code/discord
+
+Their client IDs are public and set in `compose.yaml` and `compose.prod.yaml`. Each secret lives only in its own environment's `secrets.env`. Locally, browse to http://localhost:8080, not 127.0.0.1:8080: the redirect URI is built from the address in the browser, and Discord accepts only the registered one.
+
+**Ban an account** by its Discord user ID (in Discord: Developer Mode, then right-click the user, then Copy User ID). This also works for an account that has never signed in:
+
+```bash
+$Prod exec postgres psql -U discosticker -d discosticker -c "insert into users (discord_id, banned_at) values (<id>, now()) on conflict (discord_id) do update set banned_at = now()"
+```
+
+A ban takes effect at the account's next login: sign-in checks it before any session exists, and a rejected attempt is audited as `rejected | banned`. A session that already exists keeps working until it ends (8 hours idle). To end it now, restart the api. Sessions are kept in memory, so this signs **everyone** out:
+
+```bash
+$Prod restart api
+```
+
+**Unban:**
+
+```bash
+$Prod exec postgres psql -U discosticker -d discosticker -c "update users set banned_at = null where discord_id = <id>"
+```
+
+**Recent sign-ins** (identified attempts only; failures before Discord confirmed an identity are WARN lines in the api log, not audit rows):
+
+```bash
+$Prod exec postgres psql -U discosticker -d discosticker -c "select occurred_at, discord_id, outcome, reason from login_audit order by id desc limit 20"
+$Prod logs --since 24h api | grep 'Login failed before'
+```
+
+**Known limitation:** audit records hold no visitor IP addresses, but nginx's access log still does, in the gateway's Docker container log. That's IPv4 addresses only, because IPv6 visitors currently appear as the Docker bridge address. The log uses the default `json-file` driver with no rotation configured. Rotation and retention come next weekend, with the IP-storage work.
 
 ## Lockout recovery
 
