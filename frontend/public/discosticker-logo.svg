@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="14 5 111 111" width="128" height="128" role="img" aria-label="DiscoSticker.cafe logo: a lavender café cup sticker with a peeling corner and a small heart">
+  <title>DiscoSticker.cafe</title>
+  <defs>
+    <!-- Filled parts of the sticker silhouette (the bottom-right corner of the cup is cut off: it peels) -->
+    <path id="ds-body" d="M34 50 H94 L89.6 84 L70 104 H49 Q41 104 40 96 Z"/>
+    <rect id="ds-rim" x="30" y="44" width="68" height="10" rx="5"/>
+    <path id="ds-handle" d="M40 62 C22 60 22 90 41 88"/>
+    <path id="ds-steam" d="M58 38 C54 33 62 29 58 23 M70 38 C66 33 74 29 70 23"/>
+    <path id="ds-heart" transform="translate(95 12)" d="M10 18 C10 18 0 11.5 0 5.5 C0 2 2.6 0 5.3 0 C7.5 0 9 1.3 10 3 C11 1.3 12.5 0 14.7 0 C17.4 0 20 2 20 5.5 C20 11.5 10 18 10 18 Z"/>
+  </defs>
+
+  <!-- 1. Soft drop shadow under the whole sticker -->
+  <g opacity="0.16" transform="translate(2.5 3.5)" fill="#3B2147" stroke="#3B2147" stroke-linejoin="round" stroke-linecap="round">
+    <use href="#ds-body" stroke-width="10"/>
+    <use href="#ds-rim" stroke-width="10"/>
+    <use href="#ds-handle" fill="none" stroke-width="20"/>
+    <use href="#ds-steam" fill="none" stroke-width="13.4"/>
+    <use href="#ds-heart" stroke-width="10"/>
+  </g>
+
+  <!-- 2. White die-cut border -->
+  <g fill="#FFFFFF" stroke="#FFFFFF" stroke-linejoin="round" stroke-linecap="round">
+    <use href="#ds-body" stroke-width="10"/>
+    <use href="#ds-rim" stroke-width="10"/>
+    <use href="#ds-handle" fill="none" stroke-width="20"/>
+    <use href="#ds-steam" fill="none" stroke-width="13.4"/>
+    <use href="#ds-heart" stroke-width="10"/>
+  </g>
+
+  <!-- 3. The art -->
+  <!-- handle: plum outline, lavender core -->
+  <use href="#ds-handle" fill="none" stroke="#3B2147" stroke-width="10" stroke-linecap="round"/>
+  <use href="#ds-handle" fill="none" stroke="#9D86DE" stroke-width="5" stroke-linecap="round"/>
+  <!-- cup body and rim -->
+  <use href="#ds-body" fill="#C9B8F0" stroke="#3B2147" stroke-width="2.5" stroke-linejoin="round"/>
+  <use href="#ds-rim" fill="#9D86DE" stroke="#3B2147" stroke-width="2.5"/>
+  <!-- steam -->
+  <use href="#ds-steam" fill="none" stroke="#9D86DE" stroke-width="3.4" stroke-linecap="round"/>
+  <!-- face: eyes, highlights, smile, blush -->
+  <circle cx="57" cy="73" r="3.2" fill="#3B2147"/>
+  <circle cx="71" cy="73" r="3.2" fill="#3B2147"/>
+  <circle cx="58.1" cy="71.9" r="1" fill="#FFFFFF"/>
+  <circle cx="72.1" cy="71.9" r="1" fill="#FFFFFF"/>
+  <path d="M60.5 80 Q64 83.5 67.5 80" fill="none" stroke="#3B2147" stroke-width="2.4" stroke-linecap="round"/>
+  <ellipse cx="51" cy="79" rx="4.2" ry="2.6" fill="#FFB899"/>
+  <ellipse cx="77" cy="79" rx="4.2" ry="2.6" fill="#FFB899"/>
+  <!-- peeling corner: a soft shadow, then the folded-back flap showing the sticker's paper side -->
+  <path d="M89.6 84 Q80 87.5 72.5 90.5 Q71.5 97 70 104 Z" fill="#3B2147" opacity="0.18"/>
+  <path d="M89.6 84 Q79 85.5 70.7 88 Q70.2 96 70 104 Z" fill="#F6F1FC" stroke="#3B2147" stroke-width="1.6" stroke-linejoin="round"/>
+  <!-- the emote heart, top-right -->
+  <use href="#ds-heart" fill="#F2906B" stroke="#3B2147" stroke-width="2.2" stroke-linejoin="round"/>
+  <path d="M99 16.5 Q97 17 96.8 19.5" fill="none" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round" opacity="0.85"/>
+</svg>
