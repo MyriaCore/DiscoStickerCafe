@@ -79,6 +79,10 @@ services:
       APP_S3_PATH_STYLE_ACCESS: "true"
       APP_S3_ACCESS_KEY: ${S3_ACCESS_KEY:?set S3_ACCESS_KEY in secrets.env}
       APP_S3_SECRET_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in secrets.env}
+      # The client ID is public (it's in every authorize URL). This is the dev application's;
+      # compose.prod.yaml overrides it with the production application's.
+      DISCORD_CLIENT_ID: "1558633255404699710"
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:?set DISCORD_CLIENT_SECRET in secrets.env}
     networks: [edge, backend]
     depends_on:
       postgres:
