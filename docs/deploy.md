@@ -620,6 +620,102 @@ comm -13 /tmp/objects.txt /tmp/rows.txt   # rows without an object: must print n
 
 Delete an orphan with `$Prod run --rm --no-deps --entrypoint aws bucket-init s3 rm s3://stickers/<key> --endpoint-url http://seaweedfs:8333`. A row without an object should never happen; if the second line prints anything, stop and investigate before deleting anything. An automatic sweep comes with ban-and-purge.
 
+### Take down a sticker
+
+Until owner delete and ban-and-purge arrive next weekend, a sticker is taken down by hand. **Delete the row first, then the object.** Deleting the row takes the sticker offline in one atomic statement, and from then on its link gets the same 404 as an unknown ID. If the object delete fails afterwards, what's left is an orphan: unreachable, and listed by the orphan check above. Deleting the object first would leave a row with no object between the two steps.
+
+**0. Find the sticker's ID** (Windows). If you have the link, the ID is the part between `/s/` and `.png`. Otherwise, list every sticker:
+
+- **When to use it:** the query is read-only, so it's also handy any time you want to see what an upload or a test did to the table.
+- **Pasting:** it's one pipeline with no here-string, so it pastes into the console as is, even from an indented block.
+- **Quoting:** the SQL travels over stdin, which avoids PowerShell 5.1's quoting of arguments to `ssh`. Inside the single-quoted string, `''` is an escaped `'`.
+- **Output:** each row has the sticker's public link and its owner's Discord ID, and the total comes last.
+
+```powershell
+'select s.public_id,
+        ''https://discosticker.cafe/s/'' || s.public_id || ''.png'' as url,
+        u.discord_id, s.width, s.height, s.png_bytes, s.created_at
+ from stickers s join users u on u.id = s.owner_id
+ order by s.created_at;
+ select count(*) as total from stickers;' | ssh discosticker "cd /srv/discosticker; docker compose -f compose.yaml -f compose.prod.yaml --env-file secrets.env exec -T postgres psql -U discosticker -d discosticker"
+```
+
+For the local stack, replace everything after the `|` with `docker compose --env-file secrets.env exec -T postgres psql -U discosticker -d discosticker`.
+
+The server parts of steps 1 to 3 run in one SSH session, because they share `$ID`.
+
+**1. Set the ID and check its format** before it reaches any SQL, so a typo or a stray quote can't. A bad ID prints `Not a sticker ID: stop` and leaves you in the shell. Steps 2 and 3 repeat the check, so their SQL never runs with a bad ID:
+
+```bash
+cd /srv/discosticker
+Prod='docker compose -f compose.yaml -f compose.prod.yaml --env-file secrets.env'
+ID='<id>'
+if [[ $ID =~ ^[A-Za-z0-9_-]{21}[AQgw]$ ]]; then echo "ID ok"; else echo "Not a sticker ID: stop"; fi
+```
+
+**2. Look up, confirm, delete.** One block shows the sticker, asks, and deletes only what it showed:
+
+- **What it shows:** the sticker's link, its owner's Discord ID and when it was uploaded. Open the link and check it's the sticker you mean. To ban the owner as well, use the Discord ID with "Ban an account" under "Sign-in and bans".
+- **The answer:** only the exact answer `yes` deletes. Anything else, including an empty answer, prints `Stopped: nothing deleted`.
+- **On `yes`:** it deletes the row, which takes the sticker offline, then the object, only if the returned key is exactly `<id>.png`. `-T` and `-q` make `KEY` exactly the returned key, with no terminal carriage return and no `DELETE 1` status line.
+- **Pasting:** paste the block on its own, without the lines after it, because the question reads the next line you enter.
+
+```bash
+if [[ $ID =~ ^[A-Za-z0-9_-]{21}[AQgw]$ ]]; then
+  ROW=$($Prod exec -T postgres psql -U discosticker -d discosticker -Atq -c "select u.discord_id, to_char(s.created_at at time zone 'UTC', 'YYYY-MM-DD HH24:MI:SS') from stickers s join users u on u.id = s.owner_id where s.public_id = '$ID'")
+  if [[ -z $ROW ]]; then
+    echo "No sticker with that ID: stop"
+  else
+    IFS='|' read -r OWNER UPLOADED <<< "$ROW"
+    echo "Link:     https://discosticker.cafe/s/$ID.png"
+    echo "Owner:    $OWNER (Discord ID)"
+    echo "Uploaded: $UPLOADED UTC"
+    IFS= read -r -p "Type yes to delete it, anything else stops: " ANSWER
+    if [[ $ANSWER == yes ]]; then
+      KEY=$($Prod exec -T postgres psql -U discosticker -d discosticker -Atq -c "delete from stickers where public_id = '$ID' returning object_key")
+      echo "Returned object key: ${KEY:-none, so no row was deleted}"
+      if [[ $KEY == "$ID.png" ]]; then
+        $Prod run --rm --no-deps --entrypoint aws bucket-init s3 rm "s3://stickers/$KEY" --endpoint-url http://seaweedfs:8333
+      else
+        echo "Object not deleted: key '${KEY:-none}' isn't '$ID.png'"
+      fi
+    else
+      echo "Stopped: nothing deleted"
+    fi
+  fi
+else
+  echo "Not a sticker ID: stop"
+fi
+```
+
+- **Success:** after `yes`, it prints `delete: s3://stickers/<id>.png`.
+- **"No sticker with that ID: stop":** the ID is wrong, or the sticker is already gone.
+- **"Object not deleted":** no row was deleted, or the key isn't the usual one. Stop, and run the orphan check before deleting anything.
+- **If `s3 rm` fails:** the sticker is still offline. Its object is now an orphan; delete it as shown under the orphan check.
+
+**3. Verify.** From Windows, the link must print `404 application/json`. A live sticker prints `200 image/png`, so run this before step 2 too to see the change:
+
+```powershell
+curl.exe -sS -o NUL -w "%{http_code} %{content_type}" https://discosticker.cafe/s/<id>.png
+```
+
+On the server, both `comm` lines of the orphan check above must print nothing. Then check the audit row and the sticker row:
+
+```bash
+if [[ $ID =~ ^[A-Za-z0-9_-]{21}[AQgw]$ ]]; then
+  $Prod exec postgres psql -U discosticker -d discosticker -c "select outcome, sticker_public_id from upload_audit where sticker_public_id = '$ID'"   # still one accepted row
+  $Prod exec postgres psql -U discosticker -d discosticker -At -c "select count(*) from stickers where public_id = '$ID'"   # 0
+else
+  echo "Not a sticker ID: stop"
+fi
+```
+
+**Afterwards:**
+- **Ask the poster to delete their Discord message.** Browsers that already loaded the sticker can keep showing it for up to a day (`Cache-Control: public, max-age=86400`). Discord's media proxy is outside our control and may keep a copy for a similar time.
+- **Audit:** the sticker's `upload_audit` row stays. It records who uploaded which SHA-256, and when, and it holds no image data.
+- **The takedown itself isn't audited** this weekend. Audited purges come with ban-and-purge.
+- **Rate limit:** a takedown doesn't free a rate-limit slot. The hourly limit counts accepted `upload_audit` rows, not stickers.
+
 ## Lockout recovery
 
 **The home IPv4 changed** (SSH hangs). ufw on the host allows 22 from anywhere; only the Vultr firewall group limits SSH to `<home-ipv4>`. In the Vultr console, edit the group's IPv4 22/tcp rule to the new `<home-ipv4>/32`. No server login is needed.

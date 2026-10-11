@@ -402,6 +402,81 @@ Conventions for every task:
   - The grep shows lines 573, 596, 601 and 610.
   - The check's commands ran against the local stack (`docker compose --env-file secrets.env` in place of `$Prod`): the bucket listing exited 0, with 0 objects and 0 rows, and both `comm` lines printed nothing. 10.3 repeats it after the browser uploads.
 
+- [x] 7.5 Add a "Take down a sticker" subsection to `docs/deploy.md` "Uploads" (design D19, PM-approved 2026-10-11). It holds `[user]` steps, step 0 from Windows and the rest on the server:
+  0. Find the sticker's ID from Windows with the existing "list every sticker" query, which becomes this subsection's step 0. Its ssh command uses `;`, not `&&`, so the runbook checks pass.
+  1. Check the ID's format in the shell (`^[A-Za-z0-9_-]{21}[AQgw]$`) before any SQL.
+  2. Look up the sticker's object key, owner Discord ID and `created_at`.
+  3. Delete the row with `returning object_key`.
+  4. Delete the object with the aws CLI from the bucket-init image (`$Prod run --rm --no-deps --entrypoint aws bucket-init s3 rm …`), only if the returned key equals `<id>.png`.
+  5. Run 11.7's Verify steps.
+
+  It also states:
+  - browsers that loaded the sticker can keep showing it for up to a day (`max-age=86400`), and Discord's media proxy is outside our control, so ask the poster to delete their message;
+  - `upload_audit` rows stay;
+  - the takedown itself isn't audited this weekend;
+  - a takedown doesn't free a rate-limit slot.
+
+  No command prints a secret or uses `config` or `inspect`.
+
+  Verify:
+  - `grep -nE 'Take down a sticker|returning object_key|s3 rm|max-age=86400' docs/deploy.md` shows the new lines.
+  - The runbook checks from add-discord-login 7.1 print nothing: every code block labelled `bash` or `powershell`; no `docker compose config` or `docker inspect`; no bash-style commands in PowerShell blocks; no secret-like values.
+
+  Notes (2026-10-11, Claude):
+  - **Placement:** added "### Take down a sticker" at the end of "Uploads", after the orphan check. Step 0 is the "list every sticker" query, moved there from after "Recent uploads". Its ssh command now uses `;`.
+  - **ID check:** each server block that uses the ID repeats `[[ $ID =~ ^[A-Za-z0-9_-]{21}[AQgw]$ ]]` (steps 1, 2, 3 and 5). A bad ID prints `Not a sticker ID: stop`, runs no SQL, and never exits the shell.
+  - **`-Atq`, not `-At`:** step 3 captures the key with `psql -Atq`. Tested locally, `-At` also prints the `DELETE n` status line after `returning`, so the captured key would never equal `<id>.png`.
+  - **Local dry run:** the subsection's bash blocks were extracted and run against the local stack, with `docker compose --env-file secrets.env` in place of `$Prod`. The test used a synthetic sticker: a copy of a local test sticker's object under a fresh random ID, plus its row, with no audit row.
+    - The link went from `200 image/png` to `404 application/json`, checked with step 5's PowerShell `curl.exe` before and the same request from Git Bash after.
+    - Step 3 returned `<id>.png`, and step 4 printed `delete: s3://stickers/<id>.png`.
+    - The count printed `0`, and the audit query printed `(0 rows)`, as expected for a synthetic row.
+    - The orphan check found 4 objects and 4 rows, and both `comm` lines printed nothing.
+    - A malformed ID (a non-canonical last character, or a space) printed `Not a sticker ID: stop` at steps 1, 2, 3 and 5 and `Object not deleted` at step 4. It ran no SQL, and the script ran to its end.
+    - An unknown well-formed ID printed `(0 rows)` and `Returned object key: none, so no row was deleted`, and deleted nothing.
+    - The local stack's four real stickers are unchanged.
+  - **Verify:**
+    - The grep shows lines 430, 621, 623, 671, 682, 690 and 710. Lines 623 to 710 are new.
+    - Both 7.1 checks (fences, config/inspect and PowerShell bash-isms; secret-like values) printed nothing.
+    - On a scratch copy with `&&` put back in step 0, check 1 flags that line.
+  - **Not rerun:** CLAUDE.md's Commands, because this task changes only `docs/deploy.md` and this file.
+
+- [x] 7.6 Add a confirmation pause to `docs/deploy.md` "Take down a sticker" (design D19; PM decision 2026-10-11 14:08).
+  - Merge the lookup, the confirmation and both deletes into one bash block after step 1's format check. The block:
+    1. looks up the sticker, and on zero rows prints "No sticker with that ID: stop";
+    2. otherwise prints the sticker's link (https://discosticker.cafe/s/<id>.png), its owner's Discord ID and its upload time;
+    3. asks "Type yes to delete it, anything else stops" (`read -r -p`);
+    4. only on the exact answer `yes`, runs the row delete and the guarded `s3 rm`;
+    5. on any other answer, prints "Stopped: nothing deleted".
+  - Keep the ID format guard, `-Atq` on the delete, and the `<id>.png` key check. Renumber the steps that follow.
+
+  Verify (a local dry run only, with a synthetic sticker as in 7.5; no production run):
+  - Answering `no`, and an empty answer, each print "Stopped: nothing deleted". The sticker's row count stays `1`, its object is still listed, and its link still returns `200 image/png`.
+  - Answering `yes` deletes both: the row count is `0`, the object is gone from the listing, the link returns `404 application/json`, and both `comm` lines of the orphan check print nothing.
+  - The runbook checks from add-discord-login 7.1 print nothing.
+
+  Notes (2026-10-11, Claude):
+  - **The new step 2:** a single `if … fi` block replaces the old steps 2 to 4, and Verify becomes step 3.
+    - It looks up the owner's Discord ID and the upload time (`to_char(... at time zone 'UTC', ...)`) with `psql -Atq`. An empty result prints "No sticker with that ID: stop".
+    - Otherwise it prints the link, the owner and the upload time, then runs `IFS= read -r -p "Type yes to delete it, anything else stops: " ANSWER`.
+    - Only `[[ $ANSWER == yes ]]` runs the `-Atq` row delete and the `<id>.png`-guarded `s3 rm`. Anything else prints "Stopped: nothing deleted".
+  - **`IFS=` before `read`:** it keeps leading and trailing spaces, so only exactly `yes` deletes.
+  - **One compound command:** the block is a single `if … fi`, so a paste leaves nothing after it for `read` to consume. The runbook says to paste it on its own.
+  - **Local dry run:** the harness is a throwaway script in the session scratchpad, not committed.
+    - Same synthetic sticker as in 7.5: a copy of a local test sticker's object under a fresh random ID, plus its row, with no audit row.
+    - Blocks 1 to 3 were extracted verbatim from `docs/deploy.md`. Only the `cd` line, `$Prod` and the ID changed.
+    - `$Prod` was a wrapper running `docker compose --env-file secrets.env` with stdin from `/dev/null`. Answers were piped in up front, and `docker compose exec` would otherwise read stdin and swallow the answer. On the server, the answer is typed after the lookup's exec has finished.
+    - bash shows `read -p`'s prompt only on a terminal, so the prompt isn't in the captured output.
+  - **Dry-run results:**
+    - Before any answer: row count `1`, object listed, link `200 image/png`.
+    - `no`: printed the link, `Owner: 160786816721485825 (Discord ID)`, `Uploaded: 2026-10-11 18:21:55 UTC`, then "Stopped: nothing deleted". Afterwards: row count `1`, object listed, link `200 image/png`.
+    - Empty answer: the same output and state as `no`.
+    - `yes`: printed `Returned object key: <id>.png` and `delete: s3://stickers/<id>.png`. Afterwards: row count `0`, the object no longer listed, link `404 application/json`.
+    - Orphan check: 4 objects and 4 rows, and both `comm` lines printed nothing.
+    - Step 3's server block printed `(0 rows)` for the audit query, as expected for a synthetic sticker, and `0` for the count.
+    - The local stack's four real stickers are unchanged.
+  - **Verify:** both 7.1 checks printed nothing.
+  - **Not rerun:** CLAUDE.md's Commands, because this task changes only `docs/deploy.md` and this file. No production command was run.
+
 ## 8. Serving stickers
 
 - [x] 8.1 Write `StickerServingIT` first (spec "Stickers served publicly", "Unknown and malformed sticker IDs look the same"; design D13). Each test first uploads a sticker through the API.
@@ -563,11 +638,12 @@ Conventions for every task:
 
 ## 11. Production redeploy
 
-- [ ] 11.1 [user] Push, then take GitHub's hash (PowerShell): `git push origin feature/upload`, then `git ls-remote origin refs/heads/feature/upload`.
+- [x] 11.1 [user] Push, then take GitHub's hash (PowerShell): `git push origin feature/upload`, then `git ls-remote origin refs/heads/feature/upload`.
 
   Verify: the hash equals `git rev-parse HEAD` on Windows.
+  Notes (2026-10-11, reported by the user): pushed `feature/upload`. `git ls-remote origin refs/heads/feature/upload` and `git rev-parse HEAD` both print `abb05e859f91e832e3a46cda5ecbad1b86bb6fcb`.
 
-- [ ] 11.2 [user] On the server:
+- [x] 11.2 [user] On the server:
   ```bash
   cd /srv/discosticker
   Prod='docker compose -f compose.yaml -f compose.prod.yaml --env-file secrets.env'
@@ -578,12 +654,16 @@ Conventions for every task:
   ```
 
   Verify: the last line equals the hash from 11.1. If not, stop.
+  Notes (2026-10-11, reported by the user):
+  - `fetch` created `origin/feature/upload`, `git switch feature/upload` set up tracking, and `git pull --ff-only` was already up to date.
+  - `git rev-parse HEAD` printed `abb05e859f91e832e3a46cda5ecbad1b86bb6fcb`, matching 11.1.
 
-- [ ] 11.3 [user] This change adds no secret. Confirm on the server: `diff <(cut -d= -f1 secrets.env) <(grep -Ev '^(#|$)' secrets.env.example | cut -d= -f1); echo $?`.
+- [x] 11.3 [user] This change adds no secret. Confirm on the server: `diff <(cut -d= -f1 secrets.env) <(grep -Ev '^(#|$)' secrets.env.example | cut -d= -f1); echo $?`.
 
   Verify: it prints only `0`.
+  Notes (2026-10-11, reported by the user): the names diff printed only `0`. No new secrets.
 
-- [ ] 11.4 [user] Build, start, and recreate the gateway. `routes.conf` is in its image, and the branch changed.
+- [x] 11.4 [user] Build, start, and recreate the gateway. `routes.conf` is in its image, and the branch changed.
   ```bash
   $Prod up --build -d --wait --wait-timeout 900; echo "exit=$?"
   $Prod up -d --force-recreate --no-deps --wait gateway
@@ -602,7 +682,16 @@ Conventions for every task:
   - Both tmpfs lines contain `size=131072k`, and the api's command line contains `-Xmx1g`.
   - gateway, api, postgres and seaweedfs are `(healthy)`, and bucket-init is `Exited (0)`.
 
-- [ ] 11.5 Run the signed-out smoke checks from Windows PowerShell (Claude may run these):
+  Notes (2026-10-11, reported by the user):
+  - `$Prod up --build -d --wait --wait-timeout 900` gave `exit=0`; the api and gateway images rebuilt in about 57 s.
+  - After recreating the gateway:
+    - `conf.d` lists `discosticker.conf`, and `nginx-t=0`;
+    - gateway tmpfs `/var/cache/nginx/client_temp ... size=131072k`;
+    - api tmpfs `/tmp ... size=131072k`, and the api command line `java -Xmx1g -jar /app/app.jar`;
+    - api, gateway, postgres and seaweedfs `(healthy)`, and bucket-init `Exited (0)`.
+  - Postgres and seaweedfs stayed up throughout (Up 20 hours), so their volumes were untouched.
+
+- [x] 11.5 Run the signed-out smoke checks from Windows PowerShell (Claude may run these):
   - the production header check;
   - the upload-limit check from 3.3;
   - the extended prefixed-path loop from 8.3.
@@ -612,8 +701,14 @@ Conventions for every task:
   - The upload-limit check prints `big /api/stickers 413 text/html`, `mid /api/stickers 403 application/json` and `two /api/logout 413 text/html`.
   - The loop prints 401 for `/api/me`, `/api/stickers/limits`, `/oauth2/x` and `/login/oauth2/x`, and 404 for `/s/x` and the unknown ID, each `application/json`.
   - The output is recorded in Notes.
+  Notes (2026-10-11, run from Windows PowerShell 5.1: by Claude at 13:00, as reported by the user, and again by Claude in this session with the same results):
+  - The production header check printed `1` on all 15 lines: each of the four headers exactly once on `/`, `/api/health` and `/nope/`, and HSTS exactly `max-age=300`.
+  - The upload-limit check printed `big /api/stickers 413 text/html`, `mid /api/stickers 403 application/json` and `two /api/logout 413 text/html`.
+  - The path loop gave 401 `application/json` for `/api/me`, `/api/stickers/limits`, `/oauth2/x` and `/login/oauth2/x`, and 404 `application/json` for `/s/x` and `/s/AAAAAAAAAAAAAAAAAAAAAA.png`.
+  - An unknown sticker's response carries `0` `Set-Cookie` headers. Before this change, production's `/s/x` sent an `XSRF-TOKEN` cookie.
+  - Health is `UP` over IPv4 and IPv6, and `/` returns 200.
 
-- [ ] 11.6 [user] In production, signed in at https://discosticker.cafe:
+- [x] 11.6 [user] In production, signed in at https://discosticker.cafe:
   1. The form's numbers match https://discosticker.cafe/api/stickers/limits.
   2. Upload a portrait photo straight from a phone camera, a transparent PNG and a small icon. Each link has the form https://discosticker.cafe/s/<id>.png, and the photo's sticker is upright and taller than wide.
   3. For one link, run 8.3's sticker header check. It shows status 200, `content-type: image/png`, a `content-length`, `cache-control: public, max-age=86400` and `x-content-type-options: nosniff` once, and no `set-cookie`.
@@ -624,8 +719,50 @@ Conventions for every task:
   - 7.4's orphan check prints nothing for both `comm` lines.
   - `$Prod logs --since 30m api | grep -c 'Upload accepted'` prints `3`. The processing times on those lines, and the Discord results, are recorded in Notes.
 
+  Notes (2026-10-11):
+  - Reported by the user:
+    - Form numbers: match https://discosticker.cafe/api/stickers/limits.
+    - Uploads:
+      - the portrait phone photo, 7,737,554 bytes, stored upright (`H2ZiQwhbnSaDxXwThBypPQ`);
+      - `docs/paste-test/160-transparent.png`, 6,728 bytes, transparency kept (`9ye3r5Wy-pTL6Ib5gy6udg`);
+      - the small icon, 325 bytes, unchanged (`xAsUaq-qkNbGYbTEtsq51A`).
+    - Discord, next to a real server sticker, on desktop: the photo and the 160 transparent image show at about sticker size, with the photo upright; the 32 icon stays small (never scaled up).
+    - Discord on a phone (the Android app): the production photo link (`H2ZiQwhbnSaDxXwThBypPQ`, 120 × 160) shows at about sticker size and upright, matching desktop.
+    - The 160 transparent image and the 32 icon were checked on desktop only, by the maintainer's choice: about sticker size and small, respectively. 1.2's paste test had already shown the phone drawing a 160 image at sticker size.
+    - Server:
+      - `upload_audit` has exactly 3 accepted rows (7737554, 6728 and 325 bytes) with matching public IDs.
+      - The log lines are `Upload accepted in 4415 ms` (the photo, the first upload after the api restart, so a cold JVM and decoder), `Upload accepted in 62 ms` and `Upload accepted in 51 ms`. No file names or Discord IDs appear in the logs.
+      - The orphan check printed nothing for both `comm` lines.
+  - Checked by Claude from Windows in this session, on all three stickers:
+    - GET 200 and HEAD 200;
+    - `Content-Type: image/png`, and `Content-Length` 40578, 6728 and 325, each equal to the downloaded size;
+    - `Cache-Control: public, max-age=86400`;
+    - `x-content-type-options: nosniff` exactly once;
+    - no `Set-Cookie`, `Pragma` or `Expires`.
+  - `file` on the downloads: 120 × 160 RGB, 160 × 160 RGBA and 32 × 32 RGB.
+  - Done: the phone result is recorded above, and step 4's phone check covers the photo link only.
+
+- [x] 11.7 [user] Run the takedown procedure (`docs/deploy.md` "Uploads" → "Take down a sticker"; design D19) once in production, on one of the maintainer's own test stickers from 11.6.
+  Verify:
+  - Before (PowerShell): `curl.exe -sS -o NUL -w "%{http_code} %{content_type}" https://discosticker.cafe/s/<id>.png` prints `200 image/png`. After: the same command prints `404 application/json`.
+  - On the server, the orphan check prints nothing for both `comm` lines.
+  - `$Prod exec postgres psql -U discosticker -d discosticker -c "select outcome, sticker_public_id from upload_audit where sticker_public_id = '<id>'"` still shows one `accepted` row.
+  - `$Prod exec postgres psql -U discosticker -d discosticker -At -c "select count(*) from stickers where public_id = '<id>'"` prints `0`.
+
+  Notes (2026-10-11):
+  - Reported by the user: took down the maintainer's own test photo `H2ZiQwhbnSaDxXwThBypPQ` in production, following `docs/deploy.md` "Take down a sticker".
+    - Step 1 printed `ID ok`.
+    - Step 2 printed one row: `H2ZiQwhbnSaDxXwThBypPQ.png`, the maintainer's Discord ID, created 2026-10-11 17:13:23 UTC.
+    - Steps 3 and 4 ran. Their output lines weren't captured; the checks below verify their effect.
+    - Orphan check: both `comm` lines printed nothing. The object is gone, and the two remaining stickers each still have their object.
+    - `upload_audit` still has one `accepted` row for `H2ZiQwhbnSaDxXwThBypPQ`.
+    - `count(*)` from `stickers` for that ID printed `0`.
+  - Checked by Claude from Windows (as reported by the user): before the takedown, `curl.exe` printed `200 image/png`. After it, it printed `404 application/json`, and both remaining stickers still returned `200 image/png`.
+  - Re-checked by Claude from Windows in this session: `H2ZiQwhbnSaDxXwThBypPQ` prints `404 application/json`, and `9ye3r5Wy-pTL6Ib5gy6udg` and `xAsUaq-qkNbGYbTEtsq51A` print `200 image/png`.
+  - The maintainer meant to take down the icon (`xAsUaq-qkNbGYbTEtsq51A`), but the photo's ID was used, and nothing in the procedure asked for confirmation. That led to 7.6. PM decision (2026-10-11 14:08): no second production takedown. This run stands as proof that the delete works, and the confirmation pause is verified locally in 7.6.
+
 ## Workflow follow-up
 
-- Archive the change on `feature/upload` (`/opsx:archive`) after 11.6, then open the pull request. The maintainer merges with a merge commit.
+- Archive the change on `feature/upload` (`/opsx:archive`) after 11.7, then open the pull request. The maintainer merges with a merge commit.
 - After the merge, switching the server to `master` is the runbook's routine Redeploy step.
 - The PM session records the approved decision candidates from design.md in `docs/decisions.md`. This change does not edit it.

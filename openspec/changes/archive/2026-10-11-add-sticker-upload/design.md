@@ -400,6 +400,22 @@ create index upload_audit_accepted_recent on upload_audit (discord_id, occurred_
 - **Secrets:** none added. `secrets.env` is untouched.
 - **Migrations:** Flyway applies V3 and V4 at api start. There's no existing data to migrate.
 
+### D19. Manual takedown (runbook procedure, PM-approved 2026-10-11)
+- **Why:** round 2 lets other users upload. A ban stops new uploads but doesn't remove stickers already posted, so the maintainer needs to pull one the same evening. Owner delete and audited ban-and-purge come next weekend.
+- **Procedure** (`[user]`, on the server; `docs/deploy.md` "Uploads" → "Take down a sticker"):
+  1. Check the ID's format in the shell (`^[A-Za-z0-9_-]{21}[AQgw]$`) before it reaches any SQL, so a typo or stray quote can't.
+  2. **Look up, confirm, delete, in one block.** Look up the sticker. If there are zero rows, stop. Otherwise print its link (`https://discosticker.cafe/s/<id>.png`, to open and look at), its owner's Discord ID (also for a possible ban) and its upload time, then `read` an answer. Only the exact answer `yes` continues; anything else prints "Stopped: nothing deleted" and deletes nothing.
+  3. On `yes`, delete the row: `delete from stickers where public_id = '<id>' returning object_key`. From that moment the link returns the same 404 as an unknown ID.
+  4. Delete the object with the aws CLI from the bucket-init image (`$Prod run --rm --no-deps --entrypoint aws bucket-init s3 rm …`), only if the returned key equals `<id>.png`.
+  5. Verify: 404 JSON from Windows; the orphan check prints nothing; the accepted `upload_audit` row is still there.
+- **Why a confirmation (PM decision, 2026-10-11 14:08):** in 11.7 the maintainer meant to take down the icon (`xAsUaq-qkNbGYbTEtsq51A`), but the photo's ID was pasted, and nothing asked for confirmation. The lookup, the confirmation and the deletes run in one block, so what's shown is exactly what gets deleted, and only a typed `yes` deletes anything.
+- **Order: the row first, then the object.** Deleting the row is what takes the sticker offline, and it's one atomic statement. If the object delete then fails, the result is an orphan: unreachable, and found by the orphan check, which is the same failure D9 already accepts. Deleting the object first would leave a row pointing at nothing between the two steps (a 404 with an ERROR log).
+- **Audit:** `upload_audit` rows stay. They're the accountability record (who uploaded which SHA-256, and when) and hold no image data. The takedown itself isn't audited this weekend; audited purges come with ban-and-purge. A takedown doesn't free a rate-limit slot, because D8 counts audit rows.
+- **No secrets printed:** the commands print object keys, Discord IDs, timestamps and the aws CLI's `delete:` line. The S3 keys stay in the container's environment, and nothing uses `config` or `inspect`.
+- **Caches:** browsers that already loaded the sticker can keep showing it for up to a day (`max-age=86400`). Discord's media proxy is outside our control and may keep a copy for a similar time. Ask the poster to delete their Discord message too.
+- **"Permanent" in the spec** means the link doesn't expire, unlike a presigned URL. A maintainer takedown is a moderation action outside the app's behavior, so the spec doesn't change.
+- **Alternative:** an admin endpoint. Rejected for this weekend, because admin authorization and UI belong to next weekend's ban-and-purge.
+
 ## Threats considered (uploads, storage, sessions)
 
 | # | Threat | Handling | Verified by |
@@ -418,7 +434,7 @@ create index upload_audit_accepted_recent on upload_audit (discord_id, occurred_
 | T12 | **Guessing or enumerating links.** | 128 random bits from `SecureRandom`; a canonical-form check before any lookup; malformed and unknown IDs give the same 404; no database key in any response (D10, D11, D13). | 7.2 (exact JSON fields); 8.1 |
 | T13 | **Cookies and session effects on public, cacheable responses:** a shared cache storing `Set-Cookie`, or viewing a sticker touching a session. | The `/s/**` chain has no CSRF filter, is stateless and sets no cookie (D13). | 8.1 |
 | T14 | **Served stickers executed or rendered as something else.** | Always our own PNG, exactly `image/png`, `nosniff`, `X-Frame-Options: DENY` from nginx. | 8.1; 11.5 |
-| T15 | **Purged content staying in caches.** | `max-age=86400` bounds the caches we influence. Discord's media proxy is outside our control (Known limitations). | 8.1 (header) |
+| T15 | **Taken-down content staying in caches.** | `max-age=86400` bounds the caches we influence. Discord's media proxy is outside our control (Known limitations). The takedown procedure asks the poster to delete their message (D19). | 8.1 (header); 11.7 |
 | T16 | **Ban window:** a hand-banned user keeps an in-memory session for up to 8 hours. | Upload checks the ban in the precheck and again under the write lock (D8). | 7.2 (banned after sign-in) |
 | T17 | **Audit flooding.** | Only signed-in requests that pass CSRF are audited. Rejected attempts aren't rate-limited this weekend (PM decision); each costs one row and bounded CPU. | 7.2 (signed-out and CSRF failures write no row) |
 | T18 | **Database keys exposed.** | Responses carry only `path`, `width`, `height`; `owner_id` stays internal. | 7.2; 8.1 |
@@ -433,7 +449,8 @@ create index upload_audit_accepted_recent on upload_audit (discord_id, occurred_
 - **Shrinking:** averages in sRGB space, so very fine detail comes out slightly darker.
 - **Not audited:** nginx's 413s, because they never reach the api.
 - **Orphans:** an orphan object can remain after a crash between the PUT and the COMMIT. The runbook check finds it; the sweep comes with ban-and-purge.
-- **Purge:** Discord's media proxy can keep showing a sticker after a future purge.
+- **Takedowns and caches:** a taken-down sticker can still show for up to a day in browsers that loaded it, and Discord's media proxy may keep a copy outside our control.
+- **Takedowns aren't audited** this weekend; `upload_audit` keeps the upload record. Audited purges come with ban-and-purge.
 - **High-DPI screens:** if S stays 160, stickers look soft on them.
 - **Rejected attempts:** not rate-limited.
 - **Bans:** a banned user's existing session can still call `/api/me` and sign out until it ends. Only upload checks the ban.
@@ -494,3 +511,4 @@ One line each. This change does not add them to `docs/decisions.md`.
 - Upload bodies are buffered on 128m tmpfs in the gateway and the api, and ImageIO's disk cache is off, so originals never reach a persistent disk.
 - The file picker lists JPEG before PNG, because Safari converts HEIC photos to the first listed type.
 - The form shows "Animated images become a still image.", and the frontend contains no literal limits.
+- Manual takedown (approved 2026-10-11): the row first, then the object; `upload_audit` rows kept; the takedown not audited this weekend; runbook only.
