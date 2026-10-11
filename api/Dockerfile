@@ -15,4 +15,6 @@ WORKDIR /app
 COPY --from=build /app.jar app.jar
 USER app
 EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+# A fixed heap, so the decode memory budget (2 images at once, at most 32 MP each) is the
+# same locally and on the 4 GB server, instead of 25% of whatever memory the host has.
+ENTRYPOINT ["java", "-Xmx1g", "-jar", "/app/app.jar"]

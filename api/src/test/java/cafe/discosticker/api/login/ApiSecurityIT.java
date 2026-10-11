@@ -3,6 +3,7 @@ package cafe.discosticker.api.login;
 import static cafe.discosticker.api.login.LoginFlow.setCookies;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Map;
@@ -128,6 +129,23 @@ class ApiSecurityIT {
 
 		assertThat(logout.statusCode()).isEqualTo(403);
 		assertThat(this.flow.get("/api/me").statusCode()).isEqualTo(200);
+	}
+
+	@Test
+	void signOutWithTheTokenOnlyAsAFormFieldIsRefused() {
+		this.flow.signIn(FakeDiscord.User.createdAgo(Duration.ofDays(30)));
+		this.flow.get("/api/me");
+		String token = this.flow.cookie("XSRF-TOKEN");
+
+		// Raw, and masked the way Spring renders tokens into forms: neither counts without the header.
+		for (String value : new String[] { token, LoginFlow.xorMaskedCsrfToken(token) }) {
+			HttpResponse<String> logout = this.flow.post("/api/logout",
+					HttpRequest.BodyPublishers.ofString("_csrf=" + LoginFlow.encode(value)), "Content-Type",
+					"application/x-www-form-urlencoded");
+
+			assertThat(logout.statusCode()).as(value).isEqualTo(403);
+			assertThat(this.flow.get("/api/me").statusCode()).as(value).isEqualTo(200);
+		}
 	}
 
 	@Test

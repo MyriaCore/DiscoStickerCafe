@@ -83,6 +83,12 @@ services:
       # compose.prod.yaml overrides it with the production application's.
       DISCORD_CLIENT_ID: "1558633255404699710"
       DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:?set DISCORD_CLIENT_SECRET in secrets.env}
+      # Multipart parts are written here, on the tmpfs below.
+      SPRING_SERVLET_MULTIPART_LOCATION: /tmp
+    # Upload originals never reach a persistent disk: Tomcat's multipart temp files (and any
+    # other JVM temp file) live in memory, capped at 128m, and are deleted when the request ends.
+    tmpfs:
+      - /tmp:size=128m
     networks: [edge, backend]
     depends_on:
       postgres:
@@ -103,6 +109,10 @@ services:
     # The only published port, bound to loopback.
     ports:
       - "127.0.0.1:8080:8080"
+    # Upload originals never reach a persistent disk: request bodies larger than nginx's
+    # in-memory buffer go to its compiled-in client-body temp path, which is memory, capped at 128m.
+    tmpfs:
+      - /var/cache/nginx/client_temp:size=128m
     networks: [edge]
     depends_on:
       api:

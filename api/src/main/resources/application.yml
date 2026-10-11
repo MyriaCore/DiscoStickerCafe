@@ -23,6 +23,15 @@ spring:
             # Versioned: an unversioned route goes to API v6.
             user-info-uri: https://discord.com/api/v10/users/@me
             user-name-attribute: id
+  servlet:
+    multipart:
+      # The upload limit, from app.upload below. The gateway allows 11m on /api/stickers, so a
+      # file just over this reaches the api and is rejected and audited here.
+      max-file-size: ${app.upload.max-file-size}
+      # max-file-size plus 64 KiB of multipart framing.
+      max-request-size: 10304KB
+      # Parse a body only when the upload controller reads its parts; no other endpoint parses one.
+      resolve-lazily: true
 
 server:
   # Trust X-Forwarded-* from nginx (Tomcat's RemoteIpValve accepts private-range proxies only).
@@ -42,6 +51,22 @@ server:
   tomcat:
     # Location: / rather than an absolute URL built from the request's host.
     use-relative-redirects: true
+    # More than the gateway ever forwards (11 MiB), so an upload rejected early is read to the
+    # end and nginx gets the api's response instead of a reset connection.
+    max-swallow-size: 12MB
+
+app:
+  upload:
+    # Images larger than this square box are shrunk to fit it; smaller ones keep their size.
+    sticker-size: 160
+    # Binary units: 10MB is 10,485,760 bytes.
+    max-file-size: 10MB
+    uploads-per-hour: 20
+    # Read from the image header, before any pixels are decoded.
+    max-side: 8192
+    max-pixels: 32000000
+    decode-permits: 2
+    decode-wait: 10s
 
 management:
   endpoints:
